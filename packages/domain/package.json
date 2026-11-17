@@ -1,0 +1,29 @@
+{
+  "name": "@clinic/domain",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" } },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@clinic/db": "workspace:*",
+    "@clinic/shared": "workspace:*",
+    "drizzle-orm": "^0.45.4"
+  },
+  "devDependencies": {
+    "@testcontainers/postgresql": "^12.2.1",
+    "@types/node": "^24.0.0",
+    "@types/pg": "^8.23.1",
+    "fast-check": "^4.10.2",
+    "pg": "^8.23.1",
+    "testcontainers": "^12.2.1",
+    "typescript": "5.9.3",
+    "vitest": "^5.1.0"
+  }
+}

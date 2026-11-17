@@ -37,3 +37,48 @@ Demo logins (password = `SEED_PASSWORD` from `.env`): `manager@demo.local`, `reg
 pnpm test            # shared + db; db tests start Postgres in Testcontainers (Docker needed)
 TEST_PG_ADMIN_URL=postgres://… pnpm --filter @clinic/db test   # or reuse a running Postgres
 ```
+
+## Booking engine (`packages/domain`)
+
+Plain functions over Postgres, no classes. Every business operation is one transaction with an injected clock (`ctx.now`), so tests move time instead of sleeping. Errors are values (`Result<T, AppError>` with a code from `@clinic/shared`); only real bugs throw.
+
+### How the free-time grid is computed
+
+`computeSlots` (pure, `src/grid.ts`) for each doctor, clinic-local date and working interval:
+
+1. **Working interval** = the doctor's weekly template for this clinic, minus the break. An exception replaces it: vacation / sick / day off → nothing; extra day / custom hours → their own hours (only if for this clinic).
+2. **Step 15 minutes**, aligned to the clinic wall clock (`:00 :15 :30 :45`).
+3. A start is valid when `[start, start + duration)` lies inside one interval: a visit never crosses the break or the end of the day.
+4. **Preparation:** after every visit the doctor (and the UZI room) is busy for 5 more minutes. A candidate must keep `[start, start + duration + 5 min)` clear of every busy interval, and busy intervals already include their own preparation. So a 30-minute visit at 10:00 blocks 09:30 … 10:30 and the next free start is 10:45. Preparation may run into the break or past closing time; the visit itself may not.
+5. Ultrasound services also check the clinic's room.
+6. `start >= now + 2 h` and `start <= now + 60 days`.
+7. Wall times that do not exist (spring-forward gap) are skipped; repeated ones (fall-back) are offered once, at the first occurrence. A property test compares the optimized implementation with a naive oracle on random inputs including both DST nights, and another test checks that the grid and the real exclusion constraints agree on every start.
+
+### Status table
+
+| From → To | Who | Rule |
+| --- | --- | --- |
+| – → `held` | patient, registrar (system for waitlist offers) | 10 min (offer: 15 min); one live hold per patient |
+| `held` → `booked` | patient, registrar | only while `hold_expires_at > now`; idempotent by key |
+| `held` → `cancelled` | patient, system (expiry, replacement, offer declined/expired, sick day) | no penalty |
+| `booked` → `booked` (reschedule) | patient, registrar | one atomic UPDATE; < 24 h counts as late cancel |
+| `booked` → `cancelled` | patient, registrar, registrar for sick day | < 24 h by patient/registrar = late cancel |
+| `booked` → `checked_in` | registrar | from 30 min before start |
+| `booked` → `no_show` | registrar, visit's doctor | after start; penalty |
+| `checked_in` → `completed` | visit's doctor | a `booked` visit is checked in by the doctor first |
+
+Anything else is refused by the code (`INVALID_TRANSITION`) and, independently, by the database trigger.
+
+### Decisions worth knowing
+
+- **Lock order** everywhere: doctor-day advisory lock → patient row → appointment rows. This makes "mark sick" and "book that day" mutually exclusive and keeps one patient's parallel flows from deadlocking. (Both were found by tests: a parallel hold + confirm by one patient deadlocked before the order was fixed; without the doctor-day lock a booking could survive a sick-day mark. Removing the lock makes the 40-round race test fail.)
+- **Waitlist hand-over happens in the same transaction as the release** (cancel, reschedule away, expired hold, expired/declined offer). The offer is a `held` row of kind `waitlist_offer`; the exclusion constraint allows one live row per time, so a time can never be offered to two people or be visible as free in between. Offers are not released lazily: only `expireOffer` (the worker) passes them on. Candidates that are momentarily locked by their own booking are skipped (never waited for), so a release cannot deadlock with a booking.
+- **Reschedule** moves the same row; the old time is freed only by the same UPDATE that takes the new one. A failed move leaves version, reminders and history untouched.
+- **Reminders** are tasks in the Postgres ledger, keyed by appointment *version*. A reschedule cancels the old version's tasks and creates new ones; a cancel cancels them all; a reminder already in the past at booking time is skipped. 24 h = same clinic wall-clock time on the previous day; 2 h = start − 2 h.
+- **Penalties:** one row per (appointment, kind), so retries cannot double count. The second one within 90 days closes online booking for 30 days from that moment; the registrar can still book.
+- **Registrar changing a schedule** never silently orphans visits: vacation / day off / shorter hours that would strand a booked visit are refused with `SCHEDULE_CONFLICT`. The sick day is the operation that cancels and notifies.
+- **Not found instead of forbidden** for other people's visits, so ids cannot be probed.
+
+### Tests
+
+`packages/domain/test`: pure-grid tests incl. oracle + DST nights; races with real connections (20 patients on one time, UZI via different doctors, parallel hold+confirm, simultaneous confirm retries, simultaneous cancels / expiry / sick days); expiry at ±1 ms; idempotency; waitlist queue behaviour; permissions matrix; schedule editing; grid ⟺ database agreement; full-seed performance (availability for every clinic × service, p95 well under 300 ms).

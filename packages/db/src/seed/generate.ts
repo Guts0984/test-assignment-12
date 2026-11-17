@@ -280,6 +280,7 @@ export const generateSeed = (o: SeedOptions): SeedData => {
   };
 
   const FILL = 0.88;
+  const FILL_FUTURE = 0.45; // upcoming days keep real free time, so the demo grid is not empty
   for (const doc of doctors) {
     const exm = exByDoctor.get(doc.idx) as Map<number, Exception>;
     for (let k = 0; k < totalDays; k++) {
@@ -312,7 +313,7 @@ export const generateSeed = (o: SeedOptions): SeedData => {
       for (const [from, to] of intervals) {
         let cur = from;
         while (cur + 15 <= to) {
-          if (!rng.chance(FILL)) { cur += 15; continue; }
+          if (!rng.chance(k > o.pastDays ? FILL_FUTURE : FILL)) { cur += 15; continue; }
           const fits = doc.services.filter((s) => cur + s.durationMin <= to);
           if (fits.length === 0) break;
           const svc = rng.weighted(fits.map((s) => [s, s.weight] as const));
