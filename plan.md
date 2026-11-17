@@ -15,7 +15,7 @@ Working rules (from you):
 
 | Part | Choice |
 | --- | --- |
-| Monorepo | pnpm workspaces + Turborepo, TypeScript strict, Node 24 |
+| Monorepo | pnpm workspaces (`pnpm -r`, no Turborepo: nothing to cache yet), TypeScript 5.9 strict, Node 24 |
 | DB | PostgreSQL 16, Drizzle ORM + drizzle-kit; `btree_gist`; exclusion constraints in hand-written SQL migrations (Drizzle's DSL can't express them) |
 | Queues | Redis 7 + BullMQ, used **only for delivery and timing**. Postgres holds the task ledger, so Redis can be lost safely. |
 | API | NestJS + **Apollo** (`@nestjs/apollo`), code-first, `graphql-ws` subscriptions, DataLoader, Redis pub/sub for subscriptions across replicas |
@@ -49,7 +49,7 @@ docker-compose.yml, docker-compose.test.yml (short TTLs for e2e), .env.example
 
 ## 2. Domain model (Postgres)
 
-All instants are `timestamptz` in UTC. Wall-clock schedule data is stored as `time` plus a clinic IANA zone. Money is `bigint` minor units plus a currency code (`UAH` / `PLN`). IDs are UUIDv7: not enumerable, and they sort by time.
+All instants are `timestamptz` in UTC. Wall-clock schedule data is stored as `time` plus a clinic IANA zone. Money is `bigint` minor units plus a currency code (`UAH` / `PLN`). IDs are random UUIDs (`gen_random_uuid()`; PG16 has no v7): not enumerable.
 
 | Table | Key columns / notes |
 | --- | --- |

@@ -14,6 +14,24 @@ services:
       timeout: 3s
       retries: 20
 
+  db-init:
+    build:
+      context: .
+      dockerfile: packages/db/Dockerfile
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      SEED_PASSWORD: ${SEED_PASSWORD}
+      SEED_ENABLED: ${SEED_ENABLED:-true}
+      SEED_RNG: ${SEED_RNG:-12345}
+      SEED_DOCTORS: ${SEED_DOCTORS:-40}
+      SEED_PATIENTS: ${SEED_PATIENTS:-20000}
+      SEED_APPOINTMENTS: ${SEED_APPOINTMENTS:-150000}
+      SEED_PAST_DAYS: ${SEED_PAST_DAYS:-150}
+      SEED_FUTURE_DAYS: ${SEED_FUTURE_DAYS:-30}
+    depends_on:
+      postgres: { condition: service_healthy }
+    restart: "no"
+
   redis:
     image: redis:7-alpine
     ports: ["${REDIS_PORT:-6379}:6379"]
@@ -24,7 +42,7 @@ services:
       retries: 20
 
   mailpit:
-    image: axllent/mailpit:latest
+    image: axllent/mailpit:v1.33.0
     ports: ["${MAILPIT_UI_PORT:-8025}:8025", "${SMTP_PORT:-1025}:1025"]
 
 volumes:
