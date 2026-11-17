@@ -209,6 +209,9 @@ const closeOffer = async (
   status: 'declined' | 'expired',
   reason: string,
 ): Promise<{ next: WaitlistOffer | null }> => {
+  // When the worker runs the expiry it holds a lock on its own `offer.expire` task row (and marks
+  // it done itself); touching that row from here would wait for ourselves forever.
+  const cancelKinds = status === 'expired' ? sql`'email.waitlist_offer'` : sql`'offer.expire', 'email.waitlist_offer'`;
   const { tx, now, actor } = env;
   await setHistoryMeta(tx, now, actor, { reason });
   await tx.update(schema.waitlistOffers).set({ status, respondedAt: now }).where(eq(schema.waitlistOffers.id, offer.id));
@@ -216,7 +219,7 @@ const closeOffer = async (
     .update(schema.appointments)
     .set({ status: 'cancelled', cancelledAt: now, updatedAt: now })
     .where(and(eq(schema.appointments.id, appt.id), eq(schema.appointments.status, 'held')));
-  await tx.execute(sql`UPDATE scheduled_tasks SET status = 'cancelled' WHERE status = 'pending' AND payload->>'offerId' = ${offer.id} AND kind IN ('offer.expire', 'email.waitlist_offer')`);
+  await tx.execute(sql`UPDATE scheduled_tasks SET status = 'cancelled' WHERE status = 'pending' AND payload->>'offerId' = ${offer.id} AND kind IN (${cancelKinds})`);
   const next = await offerFreedSlot(env, { doctorId: appt.doctorId, clinicId: appt.clinicId, startsAt: appt.startsAt });
   return { next };
 };

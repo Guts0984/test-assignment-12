@@ -2,6 +2,7 @@ packages:
   - apps/*
   - packages/*
 allowBuilds:
+  msgpackr-extract: false
   cpu-features: false
   esbuild: true
   protobufjs: false
@@ -18,3 +19,4 @@ minimumReleaseAgeExclude:
   - '@typescript-eslint/utils@8.73.0'
   - '@typescript-eslint/visitor-keys@8.73.0'
   - typescript-eslint@8.73.0
+  - bullmq@6.7.7

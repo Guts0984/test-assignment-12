@@ -13,6 +13,12 @@ jobs:
       - run: pnpm lint
       - run: pnpm typecheck
       - run: pnpm test
+  worker-image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: cp .env.example .env
+      - run: docker compose build worker
   db-init-image:
     # the one-shot container that migrates and seeds must work from a clean checkout
     runs-on: ubuntu-latest

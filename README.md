@@ -82,3 +82,37 @@ Anything else is refused by the code (`INVALID_TRANSITION`) and, independently, 
 ### Tests
 
 `packages/domain/test`: pure-grid tests incl. oracle + DST nights; races with real connections (20 patients on one time, UZI via different doctors, parallel hold+confirm, simultaneous confirm retries, simultaneous cancels / expiry / sick days); expiry at ±1 ms; idempotency; waitlist queue behaviour; permissions matrix; schedule editing; grid ⟺ database agreement; full-seed performance (availability for every clinic × service, p95 well under 300 ms).
+
+## Worker (`apps/worker`): Redis, BullMQ, email
+
+**Postgres holds the truth, Redis holds only a schedule.**
+
+| In Postgres (durable) | In Redis (disposable) |
+| --- | --- |
+| every appointment, hold, offer, waitlist entry | BullMQ delayed jobs: "run task X at time T" |
+| `scheduled_tasks`: the ledger of everything that must happen later (`hold.expire`, `offer.expire`, `reminder.24h/2h`, `email.*`), with `status`, `attempts`, `dedupe_key` | pub/sub channel `clinic:events` (live updates; best effort) |
+| in-app notifications, history, penalties | nothing a user could miss |
+
+Flow: a business transaction inserts its tasks into the ledger (the insert fires `NOTIFY`). The **dispatcher** (inside every worker) copies pending tasks that are due within the horizon into BullMQ, using the task id as BullMQ job id, on `NOTIFY`, at boot and every `WORKER_RECONCILE_MS` (15 s). Adding an existing job is a no-op, so repeating is free. The **consumer** takes a job, and `processTask` runs:
+
+```
+BEGIN; SELECT … FROM scheduled_tasks WHERE id=$1 AND status='pending' FOR UPDATE SKIP LOCKED;
+  none → another worker has it / already done / cancelled: acknowledge and stop
+  not due yet → rollback (the next reconcile re-adds it)
+  run handler (re-checks the business state) → mark done → COMMIT
+```
+
+Consequences (all covered by tests with a real Redis, Postgres and Mailpit):
+
+- **`FLUSHALL` or an empty Redis restart:** the next reconcile re-adds every pending task with its remaining delay. Holds are released, reminders and offers arrive on time, nothing is duplicated because the row is marked done once. The worker also starts while Redis is down and reconnects by itself.
+- **Several workers / duplicate jobs:** the row lock admits one executor. Tests run 3 workers plus hand-injected duplicate jobs under other job ids: each email arrives exactly once.
+- **Worker `kill -9` mid-task:** the connection dies, the lock is released, the task is still `pending`, another worker finishes it (BullMQ stalled-job detection or the next reconcile).
+- **Reminders** are keyed by appointment version in the ledger and re-checked at send time (`status = booked` and `version` unchanged), so after a reschedule only the new time is reminded and after a cancel nothing is.
+- **Retries:** a failing task (SMTP down, poison data) is retried with exponential backoff (`WORKER_RETRY_BASE_MS · 2^attempts`, max 5 min) up to `WORKER_MAX_ATTEMPTS`, then left `pending` with `last_error` for an operator; it never blocks other tasks.
+- **At-most-once email caveat:** the SMTP call happens while the task row is locked and the row is marked done right after. A crash between the mail server's "250 OK" and the commit would send that one mail again. The `Message-ID` is deterministic (`<task-id@clinic.local>`) so a real mail server could dedupe it.
+- **Emails** are rendered in the patient's locale (uk / en / pl) with times in the **clinic's** time zone and money in the clinic's currency; hostile names are escaped in HTML and cannot enter headers; addresses with anything but a plain `user@host` are not mailed.
+- **Shutdown** is bounded: active jobs get 10 s, then connections are forced closed, so SIGTERM never hangs on a dead Redis.
+
+Bugs this block's tests found and fixed: the worker hanging at boot while Redis is down; a self-deadlock when the worker expires an offer (the domain tried to cancel the very task row the worker had locked); shutdown hanging after a Redis restart.
+
+Run more copies: `docker compose up --scale worker=3`.
