@@ -51,11 +51,9 @@ End-to-end (Playwright, real stack, 8-second holds): see the Web section. Full-s
 ## Known limitations (found by audit, not fixed)
 
 - **Trusted proxy range:** the default `TRUST_PROXY_CIDRS=172.16.0.0/12,10.0.0.0/8` assumes Docker's automatic network lies in those ranges (true by default). If Docker hands out a `192.168.x` network, nginx is no longer trusted and all visitors share one rate-limit key: add that range to `TRUST_PROXY_CIDRS`.
-- **Offer email vs. sick-day mark:** a waiting-list offer email already locked by a worker can still be sent for a slot a sick-day mark cancels at that very moment; the offer then disappears. The booking itself is always safe.
 - **Narrow lock-order gaps** (replaced hold handed to the waiting list, a visit moved between peek and lock): the transaction retry absorbs the resulting deadlocks; a stale offer on a sick day in that window is possible but accept would be refused.
 - **Board badges:** "Late" and "With the doctor" are computed when the board loads or an event arrives, not by a timer; "With the doctor" means checked in and start time passed.
 - **Cost budget** is charged per signed-in account (an office behind one IP is not shared) and per address for visitors.
-- **The "any doctor" waiting-list browser test** is `test.fixme`: the e2e seed has too few doctors for that service; the behaviour (the patient must choose a doctor) is implemented.
 
 ## Decisions on ambiguous points
 

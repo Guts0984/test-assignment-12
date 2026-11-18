@@ -5,7 +5,7 @@ services:
     environment:
       SEED_PATIENTS: 400
       SEED_APPOINTMENTS: 3000
-      SEED_DOCTORS: 12
+      SEED_DOCTORS: 30
       SEED_WAITLIST_ENTRIES: 0
   api:
     ports: ["127.0.0.1:${API_PORT:-54000}:4000"]   # tests also talk to the API directly

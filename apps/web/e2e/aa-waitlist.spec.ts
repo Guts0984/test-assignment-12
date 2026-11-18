@@ -80,11 +80,19 @@ test('the first patient does not answer: after the offer time the second one rec
   await c1.close(); await c2.close(); await c3.close();
 });
 
-test.fixme('with "Any doctor" the waiting list never guesses: the patient must choose a doctor, and the entry is for that doctor', async ({ browser }) => {
+test('with "Any doctor" the waiting list never guesses: the patient must choose a doctor, and the entry is for that doctor', async ({ browser }) => {
   const ctx = await browser.newContext();
   await newPatient(ctx, 'wlpick');
   const page = await ctx.newPage();
-  await openSearch(page, c, c.kyiv); // no doctor in the URL
+  // a service that at least two Kyiv doctors perform (otherwise there is nothing to choose between)
+  const svcs = await gql<{ clinicServices: { service: { id: string } }[] }>(ctx.request, `query($c: ID!){ clinicServices(clinicId:$c){ service { id } } }`, { c: c.kyiv });
+  let multi = '';
+  for (const x of svcs.data!.clinicServices) {
+    const d = await gql<{ clinicDoctors: { id: string }[] }>(ctx.request, `query($c: ID!, $s: ID){ clinicDoctors(clinicId:$c, serviceId:$s){ id } }`, { c: c.kyiv, s: x.service.id });
+    if (d.data!.clinicDoctors.length >= 2) { multi = x.service.id; break; }
+  }
+  expect(multi, 'the e2e seed must have a Kyiv service with two doctors').not.toBe('');
+  await openSearch(page, { ...c, service: multi }, c.kyiv); // no doctor in the URL
   const doctorSelect = page.getByTestId('waitlist-doctor');
   const join = page.getByTestId('join-waitlist');
   await expect(doctorSelect).toHaveValue('');

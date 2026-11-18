@@ -134,6 +134,13 @@ const runHandler = async (deps: WorkerDeps, client: Client, task: TaskRow): Prom
       const view = await loadAppointmentView(client, str(p['appointmentId']));
       const offer = (await client.query('SELECT status, expires_at FROM waitlist_offers WHERE id = $1', [str(p['offerId'])])).rows[0];
       if (!view || !offer || offer['status'] !== 'pending') return 'stale';
+      // A sick-day mark may be cancelling this very slot right now. It skips tasks a worker already
+      // holds, so the check lives here: never announce a time on a day the doctor is off.
+      const off = await client.query(
+        `SELECT 1 FROM schedule_exceptions WHERE doctor_id = $1 AND local_date = $2::date AND kind IN ('sick', 'vacation', 'day_off')`,
+        [view.doctorId, view.localDate],
+      );
+      if (off.rows.length > 0) return 'stale';
       return sendKind(deps, client, task, str(p['appointmentId']), { kind: 'waitlist_offer', expiresAt: new Date(offer['expires_at'] as string | Date) }, (s) => s === 'held');
     }
     default:

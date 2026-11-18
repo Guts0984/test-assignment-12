@@ -212,6 +212,24 @@ describe('several workers (invariant 10, acceptance 11)', () => {
   });
 });
 
+describe('offers on a day the doctor is off', () => {
+  it('the offer email is not sent when the doctor was marked sick after the offer was made', async () => {
+    const { joinWaitlist } = await import('@clinic/domain');
+    const a = await bookReal(ctx(), w, 38, 2, 26, '10:00', 'k-off1');
+    must(await joinWaitlist(ctx(), (w.patients[39] as World['patients'][number]).actor, { doctorId: a.doctorId, serviceId: w.c30, fromDate: futureWorkday(26), toDate: futureWorkday(27) }));
+    must(await cancelAppointment(ctx(), (w.patients[38] as World['patients'][number]).actor, { appointmentId: a.id }));
+    // the offer exists; its email task is pending (no worker running yet). Now the doctor is marked sick
+    // the way a concurrent mark would leave things: exception committed, offer task already "taken".
+    await t.db.execute(sql`INSERT INTO schedule_exceptions (doctor_id, local_date, kind) VALUES (${a.doctorId}::uuid, ${a.localDate}::date, 'sick')`);
+    expect(await count(t.db, sql`SELECT count(*)::int AS n FROM scheduled_tasks WHERE kind = 'email.waitlist_offer' AND status = 'pending'`)).toBe(1);
+    await spawn();
+    await sleep(3000);
+    // (the plain cancellation email to the first patient is fine; the OFFER email must not be sent)
+    expect((await listMails()).filter((m) => m.Subject.includes('Звільнився'))).toHaveLength(0);
+    expect(await count(t.db, sql`SELECT count(*)::int AS n FROM scheduled_tasks WHERE kind = 'email.waitlist_offer' AND status = 'pending'`)).toBe(0); // stale: closed, not sent
+  });
+});
+
 describe('failures and poison', () => {
   it('SMTP down: nothing is lost and nothing is lost to a retry storm; once it is back the email arrives once', async () => {
     const a = await bookReal(ctx(), w, 30, 3, 21, '10:00', 'k-s1');
