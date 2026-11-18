@@ -99,6 +99,29 @@ test('the whole patient path works with the keyboard only: Confirm is a few Tab 
   await ctx.close();
 });
 
+
+/**
+ * One signed-in patient in two tabs. Tab 1 holds a time, then tab 2 picks another one, which
+ * replaces the hold on the server. `blockSockets`: tab 1 gets no live events (WebSocket refused),
+ * so it can only find out by re-checking.
+ */
+const twoTabs = async (browser: import('@playwright/test').Browser, label: string, blockSockets: boolean) => {
+  const ctx = await browser.newContext();
+  await newPatient(ctx, label);
+  const p1 = await ctx.newPage();
+  if (blockSockets) await p1.routeWebSocket(/.*/, (ws) => ws.close());
+  await openSearch(p1, c, c.kyiv);
+  const first = await firstSlot(p1);
+  await slotByStart(p1, first.start, first.doctor).click();
+  await expect(p1.getByTestId('hold-panel')).toHaveAttribute('data-state', 'held');
+  const p2 = await ctx.newPage();
+  await openSearch(p2, c, c.kyiv);
+  const second = await firstSlot(p2); // tab 1's time is held, so this is a different one
+  await slotByStart(p2, second.start, second.doctor).click();
+  await expect(p2.getByTestId('hold-panel')).toHaveAttribute('data-state', 'held');
+  return { ctx, p1, p2 };
+};
+
 test('a second tab: the hold replaced in tab 2 stops counting down in tab 1 (live event)', async ({ browser }) => {
   const { ctx, p1 } = await twoTabs(browser, 'tab2live', false);
   await expect(p1.getByTestId('hold-panel')).toHaveAttribute('data-state', 'released');
