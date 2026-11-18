@@ -39,6 +39,7 @@ export const runSeed = async (pool: pg.Pool, env: DbEnv): Promise<SeedResult> =>
       appointments: env.SEED_APPOINTMENTS,
       pastDays: env.SEED_PAST_DAYS,
       futureDays: env.SEED_FUTURE_DAYS,
+      waitlistEntries: env.SEED_WAITLIST_ENTRIES,
       now: env.SEED_NOW ? new Date(env.SEED_NOW) : new Date(),
       passwordHash,
     });

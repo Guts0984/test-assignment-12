@@ -46,6 +46,8 @@ export const buildServices = (env: ApiEnv, now: () => Date = () => new Date()): 
       signInIp: lim('signin-ip', env.RATE_SIGNIN_IP_PER_MIN, 60),
       signUp: lim('signup', env.RATE_SIGNUP_PER_HOUR, 3600),
       hold: lim('hold', env.RATE_HOLD_PER_MIN, 60),
+      wsConnect: lim('ws-connect', env.RATE_WS_CONNECT_PER_MIN, 60),
+      wsSubscribe: lim('ws-subscribe', env.RATE_WS_SUBSCRIBE_PER_MIN, 60),
     },
     bus: createEventBus(redis, subscriberFactory, (m) => log(m)),
     trusted: parseCidrs(env.TRUST_PROXY_CIDRS),

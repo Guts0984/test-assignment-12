@@ -23,6 +23,19 @@ const visible = async (doctor: number, day: number, time: string, svc = w.c30): 
   return !!r.body.data?.availability.slots.some((s) => s.doctorId === w.kyivDoctors[doctor] && new Date(s.startsAt).getTime() === t);
 };
 
+describe('clients send explicit nulls for optional fields (as the web app does)', () => {
+  it('availability accepts doctorId: null and fromDate: null', async () => {
+    const r = await gql<{ availability: { slots: unknown[] } }>(f.api, `query($i: AvailabilityInput!){ availability(input:$i){ slots { startsAt } } }`, { i: { clinicId: w.kyiv, serviceId: w.c30, doctorId: null, fromDate: null } });
+    expect(r.body.errors).toBeUndefined();
+    expect(r.body.data?.availability.slots.length).toBeGreaterThan(0);
+  });
+  it('the doctor list accepts serviceId: null', async () => {
+    const r = await gql<{ clinicDoctors: unknown[] }>(f.api, `query($c: ID!, $s: ID){ clinicDoctors(clinicId:$c, serviceId:$s){ id } }`, { c: w.kyiv, s: null });
+    expect(r.body.errors).toBeUndefined();
+    expect(r.body.data?.clinicDoctors.length).toBeGreaterThan(0);
+  });
+});
+
 describe('invariants through real HTTP (acceptance 4, 5)', () => {
   it('20 patients race for one time: one reservation, 19 clear refusals, no 500s', async () => {
     const rs = await Promise.all(ck.slice(0, 20).map((cookie) => gql(f.api, HOLD, { i: slot(0, 2, '10:00') }, { cookie })));

@@ -152,3 +152,32 @@ Code-first schema (committed as [apps/api/schema.gql](apps/api/schema.gql), rege
 - One live hold per patient: ten holds in a minute leave one frozen time slot, not ten.
 
 Bugs the tests found in this block: the ready-made complexity library silently loaded a second copy of `graphql` and never enforced anything (replaced by a small estimator, and a cost error now fails closed); WebSocket rejections needed the error class graphql-ws itself accepts; an HTTP client library ignoring the source address made every "client" the same address.
+
+## Web (`apps/web`): Next.js 15, React 19, Feature-Sliced Design
+
+```
+app/[locale]/…        thin Next routes (re-export pages)       pages/  (empty: keeps Next off src/pages)
+src/app               providers (urql client)
+src/pages             search, sign-in/up, cabinet, registrar-board/phone/schedule, doctor-schedule, manager-report
+src/widgets           slot-grid, appointment-list, day-board, schedule-editor, report-panel, app-header
+src/features          auth, hold-slot, manage-appointment, waitlist, attendance, schedule-admin, phone-booking, locale-switch
+src/entities          session, catalog, slot, appointment
+src/shared            api (urql + generated types), config (env.ts), i18n, lib, ui
+```
+
+`pnpm --filter @clinic/web lint:fsd` (Steiger) checks the layer and public-API rules in CI. Types of every response come only from `apps/api/schema.gql` through GraphQL Codegen (`pnpm --filter @clinic/web codegen`; CI regenerates and fails on a diff). No GraphQL response type is written by hand.
+
+- **Live grid:** the slot grid subscribes to `availabilityChanged` and refetches the affected view, so a second browser sees a time disappear (and come back) without reloading. The cabinet, the registrar board, the doctor's week and waiting-list offers update the same way.
+- **Hold:** choosing a time calls `holdSlot` at once; the countdown shows the server's deadline; confirm sends one idempotency key per hold (a double click books once); when the time is up the panel says so and the time is free for everyone.
+- **State in the URL:** city / service / doctor, the registrar's date, the doctor's week and the report period (`?from=&to=&clinic=`) live in the query string and use history `push`, so reload and Back restore them.
+- **Clinic time, not browser time:** the API sends the clinic wall-clock `localTime`; the UI shows exactly that, plus the clinic's time zone. Money uses the clinic currency (`1 234,50 ₴`, `1 234,50 zł`), dates the clinic zone, plurals the ICU rules of the language (`3 записи / 5 записів`, `3 wizyty / 5 wizyt`). A unit test checks that `uk`, `en`, `pl` have the same keys and placeholders.
+- **Forms:** React Hook Form + the same Zod schemas as the API; errors appear next to the field with `aria-invalid`, `aria-describedby` and `role=alert`, in the user's language, from the client or from the server (`extensions.fieldErrors`). Everything is a native control: the patient path and the registrar's phone-booking path are tested with the keyboard only.
+- Queries are sent with POST only (the API refuses simple GET requests as CSRF protection).
+
+**End-to-end tests** (`apps/web/e2e`, Playwright against the real stack; hold and offer lifetimes are 8 s there): hold → confirm → another browser loses the time without reload; unconfirmed hold returns the time and the late confirm is refused; cancel with a waiting list → the first gets the offer live and accepts, the second gets nothing; the same with the first one silent; keyboard-only patient and registrar; URL state with reload and Back; a New York browser sees Warsaw clinic times; locales; field errors; registrar phone booking, sick day and report. Run locally:
+
+```
+docker compose -f docker-compose.yml -f docker-compose.e2e.yml up -d --build api worker
+pnpm --filter @clinic/web build && E2E_START_WEB=1 pnpm --filter @clinic/web e2e
+```
+(start from a fresh database, `down -v`: the tests assume an empty waiting-list queue.)

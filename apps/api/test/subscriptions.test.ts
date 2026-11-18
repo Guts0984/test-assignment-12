@@ -182,6 +182,40 @@ describe('subscriptions are not a way around the limits', () => {
     await c.dispose();
   });
 
+  it('reconnect storms and subscribe floods from one address are rate limited, others are not', async () => {
+    const lim = await startFixture({ RATE_WS_CONNECT_PER_MIN: '5', RATE_WS_SUBSCRIBE_PER_MIN: '8', WS_MAX_SUBS_PER_CONN: '100', WS_MAX_CONN_PER_IP: '100' });
+    try {
+      const q = `subscription($c: ID!){ availabilityChanged(clinicId:$c){ doctorId } }`;
+      // 12 connections in a minute from the attacker: only 5 get through
+      const results: boolean[] = [];
+      for (let i = 0; i < 12; i++) {
+        const c = wsClient(lim.api, { ip: '127.0.0.2' });
+        const s = subscribe(c, q, { c: lim.w.kyiv });
+        await sleep(150);
+        results.push(s.errors.length === 0);
+        s.dispose();
+        await c.dispose();
+      }
+      expect(results.filter(Boolean).length).toBeLessThanOrEqual(5);
+      // a neighbour is unaffected
+      const other = wsClient(lim.api, { ip: '127.0.0.3' });
+      const ok = subscribe(other, q, { c: lim.w.kyiv });
+      await sleep(400);
+      expect(ok.errors).toEqual([]);
+      ok.dispose();
+      await other.dispose();
+      // one connection spamming subscribe messages is cut off by the subscribe budget
+      const spam = wsClient(lim.api, { ip: '127.0.0.4' });
+      const subs = Array.from({ length: 14 }, () => subscribe(spam, q, { c: lim.w.kyiv }));
+      await sleep(1500);
+      expect(subs.filter((x) => JSON.stringify(x.errors).includes('RATE_LIMITED')).length).toBeGreaterThanOrEqual(5);
+      subs.forEach((x) => x.dispose());
+      await spam.dispose();
+    } finally {
+      await lim.stop();
+    }
+  });
+
   it('errors from a wrong role never carry data', async () => {
     const r = await gql(f.api, `query { myAppointments { id } }`, {}, { cookie: ck['rk'] });
     expect(codeOf(r)).toBe('FORBIDDEN');

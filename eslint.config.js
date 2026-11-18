@@ -6,7 +6,7 @@ import globals from 'globals';
 const NEST_APPS = ['apps/api/**', 'apps/worker/**'];
 
 export default tseslint.config(
-  { ignores: ['**/dist/**', '**/.next/**', '**/node_modules/**', '**/generated/**', '**/coverage/**'] },
+  { ignores: ['**/next-env.d.ts', '**/dist/**', '**/.next/**', '**/node_modules/**', '**/generated/**', '**/coverage/**'] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {

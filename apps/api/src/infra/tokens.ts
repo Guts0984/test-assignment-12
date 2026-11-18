@@ -29,6 +29,8 @@ export type Limiters = {
   signInIp: Limiter;
   signUp: Limiter;
   hold: Limiter;
+  wsConnect: Limiter;
+  wsSubscribe: Limiter;
 };
 
 export type GqlContext = {

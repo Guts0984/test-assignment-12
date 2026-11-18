@@ -136,6 +136,8 @@ export class ApiModule {
                 const ctx = c as { extra: WsExtra };
                 const req = ctx.extra.request;
                 const ip = ipOf(req);
+                // reconnect storms: limit how often one address may open sockets, then how many at once
+                if (!(await s.limiters.wsConnect.consume(ip)).ok) return false;
                 const n = (wsPerIp.get(ip) ?? 0) + 1;
                 if (n > env.WS_MAX_CONN_PER_IP) return false; // refused: too many sockets from one address
                 wsPerIp.set(ip, n);
@@ -151,8 +153,12 @@ export class ApiModule {
                 if (n <= 0) wsPerIp.delete(ip);
                 else wsPerIp.set(ip, n);
               },
-              onSubscribe: (c: unknown, _id: string, p: unknown) => {
-                const ctx = c as { subscriptions: Map<string, unknown> | Record<string, unknown> };
+              onSubscribe: async (c: unknown, _id: string, p: unknown) => {
+                const ctx = c as { subscriptions: Map<string, unknown> | Record<string, unknown>; extra: WsExtra };
+                // every subscribe message costs a request from the same per-IP budget as HTTP
+                const rate = await s.limiters.wsSubscribe.consume(ctx.extra.session?.ip ?? 'unknown');
+                if (!rate.ok) return [wsError('RATE_LIMITED', 'Too many subscriptions, slow down')];
+                if (!(await s.limiters.global.consume(ctx.extra.session?.ip ?? 'unknown')).ok) return [wsError('RATE_LIMITED', 'Too many requests, slow down')];
                 const payload = p as { query?: string; variables?: Record<string, unknown> | null; operationName?: string | null };
                 const open = ctx.subscriptions instanceof Map ? ctx.subscriptions.size : Object.keys(ctx.subscriptions).length;
                 if (open >= env.WS_MAX_SUBS_PER_CONN) return [wsError('RATE_LIMITED', 'Too many subscriptions on this connection')];

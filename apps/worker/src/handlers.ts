@@ -45,6 +45,17 @@ const publishSafe = async (deps: WorkerDeps, e: ClinicEvent): Promise<void> => {
   }
 };
 
+/** After a time changed hands on the waiting list, tell whoever now holds the offer (live update). */
+const publishOffersAt = async (deps: WorkerDeps, client: Client, doctorId: string, startsAt: Date): Promise<void> => {
+  const r = await client.query(
+    `SELECT a.id, a.patient_id, a.clinic_id, a.doctor_id FROM waitlist_offers o JOIN appointments a ON a.id = o.appointment_id
+     WHERE a.doctor_id = $1 AND a.starts_at = $2 AND o.status = 'pending'`,
+    [doctorId, startsAt],
+  );
+  for (const x of r.rows as Record<string, string>[])
+    await publishSafe(deps, { type: 'appointment', appointmentId: String(x['id']), patientId: String(x['patient_id']), clinicId: String(x['clinic_id']), doctorId: String(x['doctor_id']) });
+};
+
 const sendKind = async (
   deps: WorkerDeps,
   client: Client,
@@ -89,6 +100,7 @@ const runHandler = async (deps: WorkerDeps, client: Client, task: TaskRow): Prom
       }
       if (before) await publishSafe(deps, { type: 'availability', clinicId: before.clinicId, doctorId: before.doctorId, localDate: before.localDate });
       if (before) await publishSafe(deps, { type: 'appointment', appointmentId: before.id, patientId: before.patientId, clinicId: before.clinicId, doctorId: before.doctorId });
+      if (before) await publishOffersAt(deps, client, before.doctorId, before.startsAt);
       return 'done';
     }
     case 'offer.expire': {
@@ -101,6 +113,8 @@ const runHandler = async (deps: WorkerDeps, client: Client, task: TaskRow): Prom
       if (before) {
         await publishSafe(deps, { type: 'availability', clinicId: before.clinicId, doctorId: before.doctorId, localDate: before.localDate });
         await publishSafe(deps, { type: 'offer', offerId, patientId: before.patientId });
+        await publishSafe(deps, { type: 'appointment', appointmentId: before.id, patientId: before.patientId, clinicId: before.clinicId, doctorId: before.doctorId });
+        await publishOffersAt(deps, client, before.doctorId, before.startsAt);
       }
       return 'done';
     }

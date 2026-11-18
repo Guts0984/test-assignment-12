@@ -28,6 +28,8 @@ const schema = z.object({
   RATE_SIGNIN_IP_PER_MIN: z.coerce.number().int().positive().default(20),
   RATE_SIGNUP_PER_HOUR: z.coerce.number().int().positive().default(5),
   RATE_HOLD_PER_MIN: z.coerce.number().int().positive().default(10),
+  RATE_WS_CONNECT_PER_MIN: z.coerce.number().int().positive().default(30),
+  RATE_WS_SUBSCRIBE_PER_MIN: z.coerce.number().int().positive().default(60),
   WS_MAX_CONN_PER_IP: z.coerce.number().int().positive().default(10),
   WS_MAX_SUBS_PER_CONN: z.coerce.number().int().positive().default(10),
   ARGON_MEMORY_KIB: z.coerce.number().int().min(1024).default(19_456),

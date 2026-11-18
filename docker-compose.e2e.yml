@@ -1,0 +1,31 @@
+# Overrides for end-to-end runs: short hold/offer lifetimes, relaxed limits, small seed.
+#   docker compose -f docker-compose.yml -f docker-compose.e2e.yml up -d --build
+services:
+  db-init:
+    environment:
+      SEED_PATIENTS: 400
+      SEED_APPOINTMENTS: 3000
+      SEED_DOCTORS: 12
+      SEED_WAITLIST_ENTRIES: 0
+  api:
+    environment:
+      HOLD_TTL_SECONDS: 8
+      OFFER_TTL_SECONDS: 8
+      RATE_GLOBAL_PER_MIN: 100000
+      RATE_SIGNIN_PER_MIN: 1000
+      RATE_SIGNIN_IP_PER_MIN: 1000
+      RATE_SIGNUP_PER_HOUR: 1000
+      RATE_HOLD_PER_MIN: 1000
+      RATE_WS_CONNECT_PER_MIN: 100000
+      RATE_WS_SUBSCRIBE_PER_MIN: 100000
+      WS_MAX_CONN_PER_IP: 1000
+      WS_MAX_SUBS_PER_CONN: 100
+      ARGON_MEMORY_KIB: 4096
+      ARGON_TIME_COST: 1
+      CORS_ORIGINS: http://localhost:3190
+      TRUST_PROXY_CIDRS: ""
+  worker:
+    environment:
+      HOLD_TTL_SECONDS: 8
+      OFFER_TTL_SECONDS: 8
+      WORKER_RECONCILE_MS: 1000

@@ -26,6 +26,7 @@ export type SeedOptions = {
   appointments: number;
   pastDays: number;
   futureDays: number;
+  waitlistEntries?: number;
   now: Date;
   passwordHash: string;
 };
@@ -391,7 +392,7 @@ export const generateSeed = (o: SeedOptions): SeedData => {
     ]);
   }
   const futureStart = addDays(today, 1);
-  for (let i = 0; i < Math.min(250, Math.floor(o.patients / 10)); i++) {
+  for (let i = 0; i < Math.min(o.waitlistEntries ?? 250, Math.floor(o.patients / 10)); i++) {
     const doc = rng.pick(doctors);
     const p = rng.int(0, Math.max(0, withUser - 1));
     waitlistEntries.push([

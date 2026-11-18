@@ -154,7 +154,8 @@ export class CatalogResolver {
   /** Free times for a service in a clinic (= city) for 14 clinic-local days. */
   @Public() @Query(() => AvailabilityType)
   async availability(@Args('input', { type: () => AvailabilityInput }) input: AvailabilityInput): Promise<AvailabilityType> {
-    const q = parseInput(availabilityQuerySchema, input);
+    // GraphQL clients send explicit nulls for omitted optionals; the shared schema wants them absent
+    const q = parseInput(availabilityQuerySchema, { ...input, doctorId: input.doctorId ?? undefined, fromDate: input.fromDate ?? undefined });
     const a = unwrap(await getAvailability(this.domain, { ...q, days: AVAILABILITY_DAYS }));
     return { clinicId: q.clinicId, timeZone: a.timeZone, currency: a.currency as CurrencyEnum, durationMin: a.durationMin, priceMinor: a.priceMinor, doctors: a.doctors, slots: a.slots };
   }
@@ -231,6 +232,12 @@ export class BookingResolver {
     await this.bus.publish({ type: 'appointment', appointmentId: a.id, patientId: a.patientId, clinicId: a.clinicId, doctorId: a.doctorId });
   }
 
+  /** A freed time may have been handed to the next person on the waiting list: tell them, live. */
+  private async announceOffersAt(doctorId: string, startsAt: Date): Promise<void> {
+    const r = await rows(this.db, sql`SELECT a.id, a.patient_id, a.clinic_id, a.doctor_id FROM waitlist_offers o JOIN appointments a ON a.id = o.appointment_id WHERE a.doctor_id = ${doctorId}::uuid AND a.starts_at = ${startsAt.toISOString()}::timestamptz AND o.status = 'pending'`);
+    for (const x of r) await this.bus.publish({ type: 'appointment', appointmentId: String(x['id']), patientId: String(x['patient_id']), clinicId: String(x['clinic_id']), doctorId: String(x['doctor_id']) });
+  }
+
   @Roles('patient', 'registrar', 'doctor') @Query(() => AppointmentType, { nullable: true })
   async appointment(@Args('id', { type: () => ID }) id: string, @Context() c: GqlContext) {
     return loadVisible(this.db, parseInput(idSchema, id), c.actor);
@@ -279,9 +286,11 @@ export class BookingResolver {
   @Roles('patient', 'registrar') @Mutation(() => AppointmentType)
   async rescheduleAppointment(@Args('input', { type: () => RescheduleInput }) input: RescheduleInput, @Context() c: GqlContext) {
     const v = parseInput(rescheduleSchema, { ...input, expectedVersion: input.expectedVersion ?? undefined });
-    const before = await this.db.execute(sql`SELECT doctor_id, clinic_id, local_date::text AS d, patient_id FROM appointments WHERE id = ${v.appointmentId}::uuid`);
+    const before = await this.db.execute(sql`SELECT doctor_id, clinic_id, local_date::text AS d, patient_id, starts_at FROM appointments WHERE id = ${v.appointmentId}::uuid`);
     const a = unwrap(await rescheduleAppointment(this.domain, actorOf(c), v));
     await this.announce(a);
+    const was = before.rows[0] as Row | undefined;
+    if (was) await this.announceOffersAt(a.doctorId, new Date(String(was['starts_at'])));
     const old = before.rows[0] as Row | undefined;
     if (old && String(old['d']) !== a.localDate) await this.bus.publish({ type: 'availability', clinicId: String(old['clinic_id']), doctorId: String(old['doctor_id']), localDate: String(old['d']) });
     return toAppointment(a);
@@ -292,6 +301,7 @@ export class BookingResolver {
     const v = parseInput(cancelSchema, { ...input, reason: input.reason ?? undefined });
     const a = unwrap(await cancelAppointment(this.domain, actorOf(c), v));
     await this.announce(a);
+    await this.announceOffersAt(a.doctorId, a.startsAt);
     return toAppointment(a);
   }
 
@@ -445,7 +455,10 @@ export class WaitlistResolver {
   async declineOffer(@Args('id', { type: () => ID }) id: string, @Context() c: GqlContext) {
     const oid = parseInput(idSchema, id);
     const r = unwrap(await declineOffer(this.domain, actorOf(c), oid));
-    if (r.next) await this.bus.publish({ type: 'offer', offerId: r.next.id, patientId: '00000000-0000-4000-8000-000000000000' });
+    if (r.next) {
+      const x = (await rows(this.db, sql`SELECT id, patient_id, clinic_id, doctor_id FROM appointments WHERE id = ${r.next.appointmentId}::uuid`))[0];
+      if (x) await this.bus.publish({ type: 'appointment', appointmentId: String(x['id']), patientId: String(x['patient_id']), clinicId: String(x['clinic_id']), doctorId: String(x['doctor_id']) });
+    }
     return true;
   }
 }

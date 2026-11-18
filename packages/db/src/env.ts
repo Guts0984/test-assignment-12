@@ -10,6 +10,8 @@ const envSchema = z.object({
   SEED_DOCTORS: z.coerce.number().int().min(1).max(200).default(40),
   SEED_PATIENTS: z.coerce.number().int().min(10).default(20_000),
   SEED_APPOINTMENTS: z.coerce.number().int().min(10).default(150_000),
+  /** Active waiting-list requests in the demo data (0 for end-to-end runs that need an empty queue). */
+  SEED_WAITLIST_ENTRIES: z.coerce.number().int().min(0).default(250),
   SEED_PAST_DAYS: z.coerce.number().int().min(1).default(150),
   SEED_FUTURE_DAYS: z.coerce.number().int().min(1).default(30),
   /** Fixed "now" for reproducible seeds in tests; default is the real clock. */
