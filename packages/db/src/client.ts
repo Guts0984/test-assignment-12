@@ -52,11 +52,7 @@ export const setActorContext = async (tx: Queryable, ctx: ActorContext): Promise
 };
 
 /** Runs `fn` in a transaction with the actor context already bound. */
-export const withActorTx = <T>(
-  db: Db,
-  ctx: ActorContext,
-  fn: (tx: Tx) => Promise<T>,
-): Promise<T> =>
+export const withActorTx = <T>(db: Db, ctx: ActorContext, fn: (tx: Tx) => Promise<T>): Promise<T> =>
   db.transaction(async (tx) => {
     await setActorContext(tx, ctx);
     return fn(tx);

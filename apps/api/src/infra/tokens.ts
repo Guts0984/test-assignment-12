@@ -48,4 +48,13 @@ export type GqlContext = {
   transport: 'http' | 'ws';
 };
 
-export type Services = { env: ApiEnv; pool: Pool; db: Db; redis: Redis; domain: Ctx; limiters: Limiters; bus: EventBus; trusted: Cidr[] };
+export type Services = {
+  env: ApiEnv;
+  pool: Pool;
+  db: Db;
+  redis: Redis;
+  domain: Ctx;
+  limiters: Limiters;
+  bus: EventBus;
+  trusted: Cidr[];
+};

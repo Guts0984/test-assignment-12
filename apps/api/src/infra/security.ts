@@ -1,4 +1,13 @@
-import { GraphQLError, Kind, type DocumentNode, type FragmentDefinitionNode, type GraphQLSchema, type OperationDefinitionNode, type SelectionSetNode, type ValueNode } from 'graphql';
+import {
+  GraphQLError,
+  Kind,
+  type DocumentNode,
+  type FragmentDefinitionNode,
+  type GraphQLSchema,
+  type OperationDefinitionNode,
+  type SelectionSetNode,
+  type ValueNode,
+} from 'graphql';
 import type { ApolloServerPlugin } from '@apollo/server';
 import { gqlError } from './errors.js';
 
@@ -6,7 +15,13 @@ export type Limits = { maxDepth: number; maxComplexity: number; maxFields: numbe
 
 type Frags = Map<string, FragmentDefinitionNode>;
 
-const walk = (set: SelectionSetNode, frags: Frags, depth: number, seen: Set<string>, acc: { depth: number; fields: number }): void => {
+const walk = (
+  set: SelectionSetNode,
+  frags: Frags,
+  depth: number,
+  seen: Set<string>,
+  acc: { depth: number; fields: number },
+): void => {
   for (const sel of set.selections) {
     if (sel.kind === Kind.FIELD) {
       acc.fields++;
@@ -18,12 +33,16 @@ const walk = (set: SelectionSetNode, frags: Frags, depth: number, seen: Set<stri
     } else {
       const f = frags.get(sel.name.value);
       // a fragment that spreads itself is already rejected by validation; stay safe anyway
-      if (f && !seen.has(f.name.value)) walk(f.selectionSet, frags, depth, new Set([...seen, f.name.value]), acc);
+      if (f && !seen.has(f.name.value))
+        walk(f.selectionSet, frags, depth, new Set([...seen, f.name.value]), acc);
     }
   }
 };
 
-export const measure = (doc: DocumentNode, operationName?: string | null): { depth: number; fields: number } => {
+export const measure = (
+  doc: DocumentNode,
+  operationName?: string | null,
+): { depth: number; fields: number } => {
   const frags: Frags = new Map();
   const ops: OperationDefinitionNode[] = [];
   for (const d of doc.definitions) {
@@ -76,11 +95,19 @@ export const ROOT_FIELD_COST: Readonly<Record<string, number>> = {
  */
 // Type inspection by shape, not `instanceof`: under some loaders (tests) the schema and this file see
 // two copies of the graphql package, and its own helpers refuse to mix them.
-type AnyType = { toString(): string; getFields?: () => Record<string, { type: AnyType; args?: readonly { name: string }[] }> };
+type AnyType = {
+  toString(): string;
+  getFields?: () => Record<string, { type: AnyType; args?: readonly { name: string }[] }>;
+};
 const isList = (t: AnyType): boolean => /^\[/.test(String(t).replace(/!$/, ''));
 const namedOf = (t: AnyType): string => String(t).replace(/[[\]!]/g, '');
 
-export const estimateCost = (schema: GraphQLSchema, doc: DocumentNode, variables: Record<string, unknown>, operationName?: string | null): number => {
+export const estimateCost = (
+  schema: GraphQLSchema,
+  doc: DocumentNode,
+  variables: Record<string, unknown>,
+  operationName?: string | null,
+): number => {
   const frags: Frags = new Map();
   const ops: OperationDefinitionNode[] = [];
   for (const d of doc.definitions) {
@@ -89,22 +116,39 @@ export const estimateCost = (schema: GraphQLSchema, doc: DocumentNode, variables
   }
   const op = (operationName ? ops.find((o) => o.name?.value === operationName) : ops[0]) ?? ops[0];
   if (!op) return 0;
-  const root = (op.operation === 'mutation' ? schema.getMutationType() : op.operation === 'subscription' ? schema.getSubscriptionType() : schema.getQueryType()) as AnyType | null | undefined;
+  const root = (
+    op.operation === 'mutation'
+      ? schema.getMutationType()
+      : op.operation === 'subscription'
+        ? schema.getSubscriptionType()
+        : schema.getQueryType()
+  ) as AnyType | null | undefined;
   if (!root) return 0;
-  const typeByName = (name: string): AnyType | undefined => schema.getType(name) as AnyType | undefined;
+  const typeByName = (name: string): AnyType | undefined =>
+    schema.getType(name) as AnyType | undefined;
   const cost = (set: SelectionSetNode, parent: AnyType, depth: number): number => {
     if (depth > 60) return 1_000_000;
     let total = 0;
     for (const sel of set.selections) {
       if (sel.kind === Kind.FIELD) {
         const name = sel.name.value;
-        if (name.startsWith('__')) { total += 1; continue; }
+        if (name.startsWith('__')) {
+          total += 1;
+          continue;
+        }
         const def = parent.getFields?.()[name];
-        if (!def) { total += 1; continue; }
+        if (!def) {
+          total += 1;
+          continue;
+        }
         const named = typeByName(namedOf(def.type));
-        const inner = sel.selectionSet && named?.getFields ? cost(sel.selectionSet, named, depth + 1) : 0;
+        const inner =
+          sel.selectionSet && named?.getFields ? cost(sel.selectionSet, named, depth + 1) : 0;
         const list = isList(def.type);
-        const limit = intArg(sel.arguments?.find((a) => a.name.value === 'limit')?.value, variables);
+        const limit = intArg(
+          sel.arguments?.find((a) => a.name.value === 'limit')?.value,
+          variables,
+        );
         // a list that takes `limit` and gets none (or junk) is executed with its default page, priced as a full 50
         const mult = list ? (limit ?? (def.args?.some((a) => a.name === 'limit') ? 50 : 10)) : 1;
         total += (depth === 0 ? (ROOT_FIELD_COST[name] ?? 1) : 1) + inner * mult;
@@ -127,19 +171,43 @@ export const estimateCost = (schema: GraphQLSchema, doc: DocumentNode, variables
  * estimated cost are checked BEFORE execution. Used for HTTP (Apollo plugin) and for subscriptions
  * (graphql-ws does not go through Apollo plugins).
  */
-export const checkLimits = (schema: GraphQLSchema, doc: DocumentNode, variables: Record<string, unknown> | undefined, operationName: string | null | undefined, limits: Limits): GraphQLError | null => {
+export const checkLimits = (
+  schema: GraphQLSchema,
+  doc: DocumentNode,
+  variables: Record<string, unknown> | undefined,
+  operationName: string | null | undefined,
+  limits: Limits,
+): GraphQLError | null => {
   const m = measure(doc, operationName);
-  if (m.depth > limits.maxDepth) return gqlError('QUERY_TOO_COMPLEX', `Query is too deep (${m.depth} > ${limits.maxDepth})`);
-  if (m.fields > limits.maxFields) return gqlError('QUERY_TOO_COMPLEX', `Query selects too many fields (${m.fields} > ${limits.maxFields})`);
+  if (m.depth > limits.maxDepth)
+    return gqlError('QUERY_TOO_COMPLEX', `Query is too deep (${m.depth} > ${limits.maxDepth})`);
+  if (m.fields > limits.maxFields)
+    return gqlError(
+      'QUERY_TOO_COMPLEX',
+      `Query selects too many fields (${m.fields} > ${limits.maxFields})`,
+    );
   const cost = estimateCost(schema, doc, variables ?? {}, operationName);
-  if (cost > limits.maxComplexity) return gqlError('QUERY_TOO_COMPLEX', `Query is too expensive (${cost} > ${limits.maxComplexity})`);
+  if (cost > limits.maxComplexity)
+    return gqlError(
+      'QUERY_TOO_COMPLEX',
+      `Query is too expensive (${cost} > ${limits.maxComplexity})`,
+    );
   return null;
 };
 
 /** Charges `cost` points to the caller's per-minute budget (the per-IP cost limiter). */
-export type CostBudget = { consume: (key: string, points: number) => Promise<{ ok: true } | { ok: false; retryAfterSec: number }> };
+export type CostBudget = {
+  consume: (
+    key: string,
+    points: number,
+  ) => Promise<{ ok: true } | { ok: false; retryAfterSec: number }>;
+};
 
-export const limitsPlugin = (getSchema: () => GraphQLSchema | null, limits: Limits, budget?: CostBudget): ApolloServerPlugin<{ ip?: string; user?: { userId: string } | null }> => ({
+export const limitsPlugin = (
+  getSchema: () => GraphQLSchema | null,
+  limits: Limits,
+  budget?: CostBudget,
+): ApolloServerPlugin<{ ip?: string; user?: { userId: string } | null }> => ({
   requestDidStart: async () => ({
     didResolveOperation: async ({ document, request, contextValue }) => {
       const schema = getSchema();
@@ -150,9 +218,14 @@ export const limitsPlugin = (getSchema: () => GraphQLSchema | null, limits: Limi
         // the work an address may ask for per minute is bounded, not just the number of requests
         const cost = estimateCost(schema, document, request.variables ?? {}, request.operationName);
         // signed-in users are charged per ACCOUNT (a whole office shares one IP); visitors per address
-        const key = contextValue.user ? `u:${contextValue.user.userId}` : `ip:${contextValue.ip ?? 'unknown'}`;
+        const key = contextValue.user
+          ? `u:${contextValue.user.userId}`
+          : `ip:${contextValue.ip ?? 'unknown'}`;
         const r = await budget.consume(key, cost);
-        if (!r.ok) throw gqlError('RATE_LIMITED', 'Too much work requested, slow down', { retryAfterSec: r.retryAfterSec });
+        if (!r.ok)
+          throw gqlError('RATE_LIMITED', 'Too much work requested, slow down', {
+            retryAfterSec: r.retryAfterSec,
+          });
       }
     },
   }),

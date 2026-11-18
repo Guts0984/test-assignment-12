@@ -5,3 +5,13 @@ coverage
 pnpm-lock.yaml
 schema.gql
 **/generated
+apps/web/.next
+apps/web/test-results
+apps/web/next-env.d.ts
+*.tsbuildinfo
+**/dist
+schema.gql
+*.sql
+*.md
+*.yml
+*.json

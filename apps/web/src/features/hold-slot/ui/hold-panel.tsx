@@ -11,14 +11,58 @@ import { mmss, useCountdown } from '@/shared/lib';
 import { newKey } from '@/shared/lib';
 import { useFormat } from '@/shared/lib';
 
-const HoldDocument = graphql(`mutation HoldSlot($input: HoldSlotInput!) { holdSlot(input: $input) { id holdExpiresAt } }`);
-const ConfirmDocument = graphql(`mutation ConfirmBooking($input: ConfirmBookingInput!) { confirmBooking(input: $input) { id status } }`);
-const ReleaseDocument = graphql(`mutation ReleaseHold($input: CancelInput!) { cancelAppointment(input: $input) { id status } }`);
+const HoldDocument = graphql(`
+  mutation HoldSlot($input: HoldSlotInput!) {
+    holdSlot(input: $input) {
+      id
+      holdExpiresAt
+    }
+  }
+`);
+const ConfirmDocument = graphql(`
+  mutation ConfirmBooking($input: ConfirmBookingInput!) {
+    confirmBooking(input: $input) {
+      id
+      status
+    }
+  }
+`);
+const ReleaseDocument = graphql(`
+  mutation ReleaseHold($input: CancelInput!) {
+    cancelAppointment(input: $input) {
+      id
+      status
+    }
+  }
+`);
 
-const HoldEventDocument = graphql(`subscription HoldWatch { myAppointmentChanged { id status } }`);
-const HoldStatusDocument = graphql(`query HoldStatus { myAppointments(scope: UPCOMING, limit: 30) { id status } }`);
+const HoldEventDocument = graphql(`
+  subscription HoldWatch {
+    myAppointmentChanged {
+      id
+      status
+    }
+  }
+`);
+const HoldStatusDocument = graphql(`
+  query HoldStatus {
+    myAppointments(scope: UPCOMING, limit: 30) {
+      id
+      status
+    }
+  }
+`);
 
-export type HoldTarget = { clinicId: string; doctorId: string; serviceId: string; startsAt: string; doctorName: string; serviceName: string; timeZone: string; priceLabel: string };
+export type HoldTarget = {
+  clinicId: string;
+  doctorId: string;
+  serviceId: string;
+  startsAt: string;
+  doctorName: string;
+  serviceName: string;
+  timeZone: string;
+  priceLabel: string;
+};
 
 /**
  * Step 2 of booking: the chosen time is reserved for the patient while they confirm. The server holds
@@ -30,7 +74,19 @@ export type HoldTarget = { clinicId: string; doctorId: string; serviceId: string
  * treats INVALID_TRANSITION / NOT_FOUND on Confirm as "this reservation is no longer active".
  * Keyboard: focus moves to the panel heading when it appears (Confirm is then one Tab away).
  */
-export const HoldPanel = ({ target, signedIn, staff = false, onClose, onChanged }: { target: HoldTarget; signedIn: boolean; /** signed in, but as registrar / doctor / manager */ staff?: boolean; onClose: () => void; onChanged: () => void }) => {
+export const HoldPanel = ({
+  target,
+  signedIn,
+  staff = false,
+  onClose,
+  onChanged,
+}: {
+  target: HoldTarget;
+  signedIn: boolean;
+  /** signed in, but as registrar / doctor / manager */ staff?: boolean;
+  onClose: () => void;
+  onChanged: () => void;
+}) => {
   const t = useTranslations('hold');
   const authT = useTranslations('auth');
   const commonT = useTranslations('common');
@@ -38,7 +94,9 @@ export const HoldPanel = ({ target, signedIn, staff = false, onClose, onChanged 
   const [, hold] = useMutation(HoldDocument);
   const [, confirm] = useMutation(ConfirmDocument);
   const [, release] = useMutation(ReleaseDocument);
-  const [state, setState] = useState<'holding' | 'held' | 'confirming' | 'done' | 'expired' | 'released' | 'failed'>('holding');
+  const [state, setState] = useState<
+    'holding' | 'held' | 'confirming' | 'done' | 'expired' | 'released' | 'failed'
+  >('holding');
   const [code, setCode] = useState<string | null>(null);
   const [appt, setAppt] = useState<{ id: string; until: Date } | null>(null);
   const key = useRef(newKey());
@@ -49,12 +107,16 @@ export const HoldPanel = ({ target, signedIn, staff = false, onClose, onChanged 
   const [ev] = useSubscription({ query: HoldEventDocument, pause: !signedIn || staff });
 
   // move keyboard focus to the panel when it appears or when another time is picked
-  useEffect(() => { document.getElementById(focusId)?.focus(); }, [target.doctorId, target.startsAt, signedIn, staff]);
+  useEffect(() => {
+    document.getElementById(focusId)?.focus();
+  }, [target.doctorId, target.startsAt, signedIn, staff]);
 
   // no live event (offline, socket lost, tab in the background): ask once when the tab comes back
   const recheck = useCallback(async (): Promise<void> => {
     if (!appt || state !== 'held') return;
-    const r = await client.query(HoldStatusDocument, {}, { requestPolicy: 'network-only' }).toPromise();
+    const r = await client
+      .query(HoldStatusDocument, {}, { requestPolicy: 'network-only' })
+      .toPromise();
     if (!r.data) return;
     const mine = r.data.myAppointments.find((a) => a.id === appt.id);
     if (!mine || mine.status === 'cancelled') setState('released');
@@ -66,16 +128,22 @@ export const HoldPanel = ({ target, signedIn, staff = false, onClose, onChanged 
     const e = ev.data?.myAppointmentChanged;
     if (!e || !appt || state !== 'held') return;
     if (e.id === appt.id) {
-      if (e.status === 'booked') setState('done'); else if (e.status !== 'held') setState('released');
+      if (e.status === 'booked') setState('done');
+      else if (e.status !== 'held') setState('released');
     } else void recheck();
   }, [ev.data]);
 
   useEffect(() => {
     if (state !== 'held') return;
-    const onShow = (): void => { if (document.visibilityState === 'visible') void recheck(); };
+    const onShow = (): void => {
+      if (document.visibilityState === 'visible') void recheck();
+    };
     window.addEventListener('focus', onShow);
     document.addEventListener('visibilitychange', onShow);
-    return () => { window.removeEventListener('focus', onShow); document.removeEventListener('visibilitychange', onShow); };
+    return () => {
+      window.removeEventListener('focus', onShow);
+      document.removeEventListener('visibilitychange', onShow);
+    };
   }, [state, recheck]);
 
   useEffect(() => {
@@ -86,7 +154,14 @@ export const HoldPanel = ({ target, signedIn, staff = false, onClose, onChanged 
     key.current = newKey();
     setState('holding');
     setCode(null);
-    void hold({ input: { clinicId: target.clinicId, doctorId: target.doctorId, serviceId: target.serviceId, startsAt: target.startsAt } }).then((r) => {
+    void hold({
+      input: {
+        clinicId: target.clinicId,
+        doctorId: target.doctorId,
+        serviceId: target.serviceId,
+        startsAt: target.startsAt,
+      },
+    }).then((r) => {
       if (r.error || !r.data) {
         setCode(errorCode(r.error));
         setState('failed');
@@ -101,15 +176,25 @@ export const HoldPanel = ({ target, signedIn, staff = false, onClose, onChanged 
   // the hold ends when the server's deadline passes (the server is the authority; this only updates the screen)
   useEffect(() => {
     if (state !== 'held' || !appt) return;
-    const id = setTimeout(() => { setState('expired'); onChanged(); }, Math.max(0, appt.until.getTime() - Date.now()));
+    const id = setTimeout(
+      () => {
+        setState('expired');
+        onChanged();
+      },
+      Math.max(0, appt.until.getTime() - Date.now()),
+    );
     return () => clearTimeout(id);
   }, [state, appt]);
 
   if (staff) {
     return (
       <Card aria-live="polite" data-testid="staff-note">
-        <p id={focusId} tabIndex={-1} className="mb-2 text-sm">{t('patientsOnly')}</p>
-        <Button variant="ghost" onClick={onClose}>{commonT('close')}</Button>
+        <p id={focusId} tabIndex={-1} className="mb-2 text-sm">
+          {t('patientsOnly')}
+        </p>
+        <Button variant="ghost" onClick={onClose}>
+          {commonT('close')}
+        </Button>
       </Card>
     );
   }
@@ -117,10 +202,16 @@ export const HoldPanel = ({ target, signedIn, staff = false, onClose, onChanged 
   if (!signedIn) {
     return (
       <Card aria-live="polite">
-        <p id={focusId} tabIndex={-1} className="mb-2 text-sm">{authT('needSignIn')}</p>
+        <p id={focusId} tabIndex={-1} className="mb-2 text-sm">
+          {authT('needSignIn')}
+        </p>
         <div className="flex gap-2">
-          <Link className="text-sky-800 underline" href={`/sign-in`}>{commonT('signIn')}</Link>
-          <Button variant="ghost" onClick={onClose}>{commonT('close')}</Button>
+          <Link className="text-sky-800 underline" href={`/sign-in`}>
+            {commonT('signIn')}
+          </Link>
+          <Button variant="ghost" onClick={onClose}>
+            {commonT('close')}
+          </Button>
         </div>
       </Card>
     );
@@ -133,7 +224,11 @@ export const HoldPanel = ({ target, signedIn, staff = false, onClose, onChanged 
     const r = await confirm({ input: { appointmentId: appt.id, idempotencyKey: key.current } });
     if (r.error) {
       const c = errorCode(r.error);
-      if (c === 'INVALID_TRANSITION' || c === 'NOT_FOUND') { setState('released'); onChanged(); return; }
+      if (c === 'INVALID_TRANSITION' || c === 'NOT_FOUND') {
+        setState('released');
+        onChanged();
+        return;
+      }
       setCode(c);
       setState(c === 'HOLD_EXPIRED' ? 'expired' : 'held');
       onChanged();
@@ -150,41 +245,96 @@ export const HoldPanel = ({ target, signedIn, staff = false, onClose, onChanged 
 
   return (
     <Card aria-live="polite" data-testid="hold-panel" data-state={state}>
-      <h2 id={focusId} tabIndex={-1} className="text-lg font-semibold focus:outline-none focus-visible:outline-2 focus-visible:outline-sky-700">{t('title')}</h2>
+      <h2
+        id={focusId}
+        tabIndex={-1}
+        className="text-lg font-semibold focus:outline-none focus-visible:outline-2 focus-visible:outline-sky-700"
+      >
+        {t('title')}
+      </h2>
       <p className="text-sm text-slate-700">
-        {t('summary', { service: target.serviceName, doctor: target.doctorName, when: f.dateTime(target.startsAt, target.timeZone), price: target.priceLabel })}
+        {t('summary', {
+          service: target.serviceName,
+          doctor: target.doctorName,
+          when: f.dateTime(target.startsAt, target.timeZone),
+          price: target.priceLabel,
+        })}
       </p>
-      {state === 'holding' && <p className="mt-2"><Spinner /></p>}
+      {state === 'holding' && (
+        <p className="mt-2">
+          <Spinner />
+        </p>
+      )}
       {state === 'held' && (
         <>
-          <p className="mt-2 text-sm font-medium tabular-nums" data-testid="countdown">{t('expiresIn', { time: mmss(left) })}</p>
+          <p className="mt-2 text-sm font-medium tabular-nums" data-testid="countdown">
+            {t('expiresIn', { time: mmss(left) })}
+          </p>
           <div className="mt-3 flex gap-2">
-            <Button onClick={doConfirm} data-testid="confirm-booking">{t('confirm')}</Button>
-            <Button variant="secondary" onClick={doRelease}>{t('release')}</Button>
+            <Button onClick={doConfirm} data-testid="confirm-booking">
+              {t('confirm')}
+            </Button>
+            <Button variant="secondary" onClick={doRelease}>
+              {t('release')}
+            </Button>
           </div>
         </>
       )}
-      {state === 'confirming' && <p className="mt-2"><Spinner /></p>}
+      {state === 'confirming' && (
+        <p className="mt-2">
+          <Spinner />
+        </p>
+      )}
       {state === 'done' && (
         <>
-          <p className="mt-2 text-sm font-medium text-emerald-800" role="status" data-testid="booked-note">{t('confirmed')}</p>
-          <div className="mt-3"><Button variant="secondary" onClick={onClose}>{commonT('close')}</Button></div>
+          <p
+            className="mt-2 text-sm font-medium text-emerald-800"
+            role="status"
+            data-testid="booked-note"
+          >
+            {t('confirmed')}
+          </p>
+          <div className="mt-3">
+            <Button variant="secondary" onClick={onClose}>
+              {commonT('close')}
+            </Button>
+          </div>
         </>
       )}
       {state === 'expired' && (
         <>
-          <p className="mt-2 text-sm text-amber-900" role="status" data-testid="expired-note">{t('expired')}</p>
-          <div className="mt-3"><Button variant="secondary" onClick={onClose}>{commonT('close')}</Button></div>
+          <p className="mt-2 text-sm text-amber-900" role="status" data-testid="expired-note">
+            {t('expired')}
+          </p>
+          <div className="mt-3">
+            <Button variant="secondary" onClick={onClose}>
+              {commonT('close')}
+            </Button>
+          </div>
         </>
       )}
       {state === 'released' && (
         <>
-          <p className="mt-2 text-sm text-amber-900" role="status" data-testid="released-note">{t('inactive')}</p>
-          <div className="mt-3"><Button variant="secondary" onClick={onClose}>{t('pickAgain')}</Button></div>
+          <p className="mt-2 text-sm text-amber-900" role="status" data-testid="released-note">
+            {t('inactive')}
+          </p>
+          <div className="mt-3">
+            <Button variant="secondary" onClick={onClose}>
+              {t('pickAgain')}
+            </Button>
+          </div>
         </>
       )}
-      <div className="mt-2"><ErrorNote code={code} /></div>
-      {state === 'failed' && <div className="mt-3"><Button variant="secondary" onClick={onClose}>{commonT('close')}</Button></div>}
+      <div className="mt-2">
+        <ErrorNote code={code} />
+      </div>
+      {state === 'failed' && (
+        <div className="mt-3">
+          <Button variant="secondary" onClick={onClose}>
+            {commonT('close')}
+          </Button>
+        </div>
+      )}
     </Card>
   );
 };

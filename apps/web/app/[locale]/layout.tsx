@@ -9,7 +9,13 @@ import '../globals.css';
 
 export const generateStaticParams = () => routing.locales.map((locale) => ({ locale }));
 
-export default async function LocaleLayout({ children, params }: { children: ReactNode; params: Promise<{ locale: string }> }) {
+export default async function LocaleLayout({
+  children,
+  params,
+}: {
+  children: ReactNode;
+  params: Promise<{ locale: string }>;
+}) {
   const { locale } = await params;
   if (!hasLocale(routing.locales, locale)) notFound();
   setRequestLocale(locale);
@@ -19,8 +25,12 @@ export default async function LocaleLayout({ children, params }: { children: Rea
       <body>
         <NextIntlClientProvider locale={locale} messages={messages}>
           <Providers>
-            <Suspense><AppHeader /></Suspense>
-            <main id="main" className="mx-auto max-w-6xl px-4 py-6"><Suspense>{children}</Suspense></main>
+            <Suspense>
+              <AppHeader />
+            </Suspense>
+            <main id="main" className="mx-auto max-w-6xl px-4 py-6">
+              <Suspense>{children}</Suspense>
+            </main>
           </Providers>
         </NextIntlClientProvider>
       </body>

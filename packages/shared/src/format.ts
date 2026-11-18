@@ -5,7 +5,8 @@ export const intlLocale = (l: Locale): string => INTL_LOCALE[l];
 
 /** Minor units (kopiyky / grosze) → localized string in the clinic currency. */
 export const formatMoney = (minor: number, currency: Currency, locale: Locale): string => {
-  if (!Number.isSafeInteger(minor)) throw new RangeError('Money must be an integer count of minor units');
+  if (!Number.isSafeInteger(minor))
+    throw new RangeError('Money must be an integer count of minor units');
   const fmt = new Intl.NumberFormat(INTL_LOCALE[locale], {
     style: 'currency',
     currency,

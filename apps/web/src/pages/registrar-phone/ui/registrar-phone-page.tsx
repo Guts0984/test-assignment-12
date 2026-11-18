@@ -27,26 +27,67 @@ export const RegistrarPhonePage = () => {
   if (!clinicId) return null;
   return (
     <>
-      <PageTitle>{r('phoneBooking')} · {clinic?.city}</PageTitle>
+      <PageTitle>
+        {r('phoneBooking')} · {clinic?.city}
+      </PageTitle>
       <form className="mb-6 grid gap-3 sm:grid-cols-2" onSubmit={(e) => e.preventDefault()}>
-        <SelectField label={t('service')} value={q.service} onChange={(e) => { setQ({ service: e.target.value, doctor: '' }); setPicked(null); }} data-testid="service">
+        <SelectField
+          label={t('service')}
+          value={q.service}
+          onChange={(e) => {
+            setQ({ service: e.target.value, doctor: '' });
+            setPicked(null);
+          }}
+          data-testid="service"
+        >
           <option value="">{t('chooseService')}</option>
-          {services.map((s) => <option key={s.service.id} value={s.service.id}>{serviceName(s.service, locale)}</option>)}
+          {services.map((s) => (
+            <option key={s.service.id} value={s.service.id}>
+              {serviceName(s.service, locale)}
+            </option>
+          ))}
         </SelectField>
-        <SelectField label={t('doctor')} value={q.doctor} disabled={!q.service} onChange={(e) => { setQ({ doctor: e.target.value }); setPicked(null); }}>
+        <SelectField
+          label={t('doctor')}
+          value={q.doctor}
+          disabled={!q.service}
+          onChange={(e) => {
+            setQ({ doctor: e.target.value });
+            setPicked(null);
+          }}
+        >
           <option value="">{t('anyDoctor')}</option>
-          {doctors.map((d) => <option key={d.id} value={d.id}>{d.fullName}</option>)}
+          {doctors.map((d) => (
+            <option key={d.id} value={d.id}>
+              {d.fullName}
+            </option>
+          ))}
         </SelectField>
       </form>
       {/* the form comes before the grid in DOM order (a few Tab stops from the chosen time); CSS keeps it on the right */}
       <div className="grid gap-6 lg:grid-cols-[1fr_24rem]">
         {picked && (
           <div className="lg:col-start-2 lg:row-start-1">
-            <PhoneBookingForm slot={{ clinicId, doctorId: picked.slot.doctorId, serviceId: q.service, startsAt: picked.slot.startsAt }} onBooked={() => undefined} />
+            <PhoneBookingForm
+              slot={{
+                clinicId,
+                doctorId: picked.slot.doctorId,
+                serviceId: q.service,
+                startsAt: picked.slot.startsAt,
+              }}
+              onBooked={() => undefined}
+            />
           </div>
         )}
         <div className="lg:col-start-1 lg:row-start-1">
-          <SlotGrid clinicId={clinicId} clinicLabel={clinic?.city ?? ''} serviceId={q.service} doctorId={q.doctor} selected={picked?.slot} onPick={setPicked} />
+          <SlotGrid
+            clinicId={clinicId}
+            clinicLabel={clinic?.city ?? ''}
+            serviceId={q.service}
+            doctorId={q.doctor}
+            selected={picked?.slot}
+            onPick={setPicked}
+          />
         </div>
       </div>
     </>

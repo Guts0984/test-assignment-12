@@ -35,11 +35,16 @@ describe('offsets', () => {
 
 describe('spring forward (2026-03-29)', () => {
   it('Kyiv 03:30 does not exist', () => {
-    expect(localToInstant('2026-03-29', '03:30', KYIV)).toEqual({ ok: false, error: 'NONEXISTENT_LOCAL_TIME' });
+    expect(localToInstant('2026-03-29', '03:30', KYIV)).toEqual({
+      ok: false,
+      error: 'NONEXISTENT_LOCAL_TIME',
+    });
   });
   it('Warsaw 02:30 does not exist; 03:00 does', () => {
     expect(localToInstant('2026-03-29', '02:30', WARSAW).ok).toBe(false);
-    expect(must(localToInstant('2026-03-29', '03:00', WARSAW)).toISOString()).toBe('2026-03-29T01:00:00.000Z');
+    expect(must(localToInstant('2026-03-29', '03:00', WARSAW)).toISOString()).toBe(
+      '2026-03-29T01:00:00.000Z',
+    );
   });
   it('the day is only 23h long', () => {
     const a = must(localToInstant('2026-03-29', '00:00', KYIV));

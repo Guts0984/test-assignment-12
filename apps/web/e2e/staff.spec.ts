@@ -1,8 +1,21 @@
 import { expect, test } from '@playwright/test';
-import { arrowSelect, catalog, gql, loginAs, newPatient, openSearch, firstSlot, slotByStart, tabTo, type Catalog } from './helpers';
+import {
+  arrowSelect,
+  catalog,
+  gql,
+  loginAs,
+  newPatient,
+  openSearch,
+  firstSlot,
+  slotByStart,
+  tabTo,
+  type Catalog,
+} from './helpers';
 
 let c: Catalog;
-test.beforeAll(async ({ request }) => { c = await catalog(request); });
+test.beforeAll(async ({ request }) => {
+  c = await catalog(request);
+});
 
 test('registrar: phone booking through the same rules, and the day board', async ({ browser }) => {
   const ctx = await browser.newContext();
@@ -34,7 +47,7 @@ test('registrar: phone booking through the same rules, and the day board', async
   await ctx.close();
 });
 
-test('registrar: a doctor\'s sick day cancels the day, once', async ({ browser, request }) => {
+test("registrar: a doctor's sick day cancels the day, once", async ({ browser, request }) => {
   const ctx = await browser.newContext();
   await loginAs(ctx, 'registrar.kyiv@demo.local');
   // find a future day with booked visits in Kyiv
@@ -43,7 +56,11 @@ test('registrar: a doctor\'s sick day cancels the day, once', async ({ browser, 
   let date = '';
   for (let i = 3; i < 28 && !date; i++) {
     const d = new Date(Date.now() + i * 86_400_000).toISOString().slice(0, 10);
-    const r = await gql<{ clinicBoard: { status: string }[] }>(ctx.request, `query($c: ID!, $d: String!){ clinicBoard(clinicId:$c, date:$d){ status } }`, { c: clinicId, d });
+    const r = await gql<{ clinicBoard: { status: string }[] }>(
+      ctx.request,
+      `query($c: ID!, $d: String!){ clinicBoard(clinicId:$c, date:$d){ status } }`,
+      { c: clinicId, d },
+    );
     if ((r.data?.clinicBoard ?? []).some((a) => a.status === 'booked')) date = d;
   }
   expect(date).not.toBe('');
@@ -55,7 +72,11 @@ test('registrar: a doctor\'s sick day cancels the day, once', async ({ browser, 
   await page.getByTestId('sick-open').first().click();
   await page.getByTestId('sick-confirm').click();
   await expect(page.getByTestId('sick-result')).toContainText(/\d+ appointment/);
-  await expect.poll(() => page.locator('[data-testid="board-item"][data-status="booked"]').count(), { timeout: 15_000 }).toBeLessThan(before);
+  await expect
+    .poll(() => page.locator('[data-testid="board-item"][data-status="booked"]').count(), {
+      timeout: 15_000,
+    })
+    .toBeLessThan(before);
   await request.dispose();
   await ctx.close();
 });
@@ -68,7 +89,11 @@ test('doctor sees their own week, with actions only for their visits', async ({ 
   await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
   await page.waitForLoadState('networkidle');
   // never someone else's: every card belongs to the signed-in doctor (the API only returns those)
-  const names = await page.getByTestId('appointment').locator('p').filter({ hasText: /·/ }).allTextContents();
+  const names = await page
+    .getByTestId('appointment')
+    .locator('p')
+    .filter({ hasText: /·/ })
+    .allTextContents();
   void names;
   await ctx.close();
 });
@@ -89,10 +114,13 @@ test('manager: the report period lives in the URL (reload and Back)', async ({ b
   await ctx.close();
 });
 
-test('forms: errors appear at the fields (client and server), the sign-in error is announced', async ({ page }) => {
+test('forms: errors appear at the fields (client and server), the sign-in error is announced', async ({
+  page,
+}) => {
   await page.goto('/en/sign-up');
   await page.getByRole('button', { name: 'Sign up' }).click();
-  for (const label of ['Full name', 'Email', 'Phone', 'Password']) await expect(page.getByLabel(label)).toHaveAttribute('aria-invalid', 'true');
+  for (const label of ['Full name', 'Email', 'Phone', 'Password'])
+    await expect(page.getByLabel(label)).toHaveAttribute('aria-invalid', 'true');
   await expect(page.getByRole('alert').first()).toBeVisible();
   // server-side error: an email that already exists
   await page.getByLabel('Full name').fill('Taken Email');
@@ -143,6 +171,8 @@ test('registrar: the phone-booking path works with the keyboard only', async ({ 
   await expect(page.getByTestId('phone-booked')).toBeVisible();
   await page.reload();
   await expect(page.getByTestId('slot-grid')).toBeVisible();
-  await expect(page.locator(`[data-testid="slot"][data-start="${start}"][data-doctor="${doctor}"]`)).toHaveCount(0);
+  await expect(
+    page.locator(`[data-testid="slot"][data-start="${start}"][data-doctor="${doctor}"]`),
+  ).toHaveCount(0);
   await ctx.close();
 });

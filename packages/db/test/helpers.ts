@@ -68,25 +68,48 @@ export const makeWorld = async (db: Db): Promise<World> => {
     .values([
       { code: 'c30', specialty: 'x', nameUk: 'c30', nameEn: 'c30', namePl: 'c30', durationMin: 30 },
       { code: 'q15', specialty: 'x', nameUk: 'q15', nameEn: 'q15', namePl: 'q15', durationMin: 15 },
-      { code: 'u30', specialty: 'x', nameUk: 'u30', nameEn: 'u30', namePl: 'u30', durationMin: 30, needsUltrasound: true },
-      { code: 'u45', specialty: 'x', nameUk: 'u45', nameEn: 'u45', namePl: 'u45', durationMin: 45, needsUltrasound: true },
+      {
+        code: 'u30',
+        specialty: 'x',
+        nameUk: 'u30',
+        nameEn: 'u30',
+        namePl: 'u30',
+        durationMin: 30,
+        needsUltrasound: true,
+      },
+      {
+        code: 'u45',
+        specialty: 'x',
+        nameUk: 'u45',
+        nameEn: 'u45',
+        namePl: 'u45',
+        durationMin: 45,
+        needsUltrasound: true,
+      },
     ])
     .returning();
   const [c30, q15, u30, u45] = svc;
   if (!c30 || !q15 || !u30 || !u45) throw new Error('service insert failed');
   for (const clinic of [kyiv, warsaw])
-    await db.insert(schema.clinicServices).values(
-      svc.map((s) => ({ clinicId: clinic.id, serviceId: s.id, priceMinor: 100_000 })),
-    );
+    await db
+      .insert(schema.clinicServices)
+      .values(svc.map((s) => ({ clinicId: clinic.id, serviceId: s.id, priceMinor: 100_000 })));
   const docs = await db
     .insert(schema.doctors)
     .values(Array.from({ length: 7 }, (_, i) => ({ fullName: `Doctor ${i}`, specialty: 'x' })))
     .returning();
   for (const d of docs)
-    await db.insert(schema.doctorServices).values(svc.map((s) => ({ doctorId: d.id, serviceId: s.id })));
+    await db
+      .insert(schema.doctorServices)
+      .values(svc.map((s) => ({ doctorId: d.id, serviceId: s.id })));
   const pats = await db
     .insert(schema.patients)
-    .values(Array.from({ length: 40 }, (_, i) => ({ fullName: `Patient ${i}`, phone: `+3805000000${String(i).padStart(2, '0')}` })))
+    .values(
+      Array.from({ length: 40 }, (_, i) => ({
+        fullName: `Patient ${i}`,
+        phone: `+3805000000${String(i).padStart(2, '0')}`,
+      })),
+    )
     .returning();
   const uziK = rooms.find((r) => r.clinicId === kyiv.id);
   if (!uziK) throw new Error('room missing');
@@ -130,7 +153,12 @@ export const apptValues = (a: ApptInput) => ({
   localDate: '2000-01-01',
   status: a.status ?? 'booked',
   kind: a.kind ?? 'regular',
-  holdExpiresAt: a.holdExpiresAt === undefined ? (a.status === 'held' ? new Date(a.startsAt.getTime()) : null) : a.holdExpiresAt,
+  holdExpiresAt:
+    a.holdExpiresAt === undefined
+      ? a.status === 'held'
+        ? new Date(a.startsAt.getTime())
+        : null
+      : a.holdExpiresAt,
   roomId: a.roomId ?? null,
   priceMinor: 100_000,
   currency: 'UAH' as const,
@@ -138,7 +166,10 @@ export const apptValues = (a: ApptInput) => ({
 });
 
 export const insertAppt = async (db: Db, a: ApptInput): Promise<string> => {
-  const [row] = await db.insert(schema.appointments).values(apptValues(a)).returning({ id: schema.appointments.id });
+  const [row] = await db
+    .insert(schema.appointments)
+    .values(apptValues(a))
+    .returning({ id: schema.appointments.id });
   if (!row) throw new Error('insert failed');
   return row.id;
 };

@@ -22,10 +22,15 @@ export type AppointmentView = {
   priceMinor: number;
 };
 
-type Queryable = { query: (text: string, values?: unknown[]) => Promise<{ rows: Record<string, unknown>[] }> };
+type Queryable = {
+  query: (text: string, values?: unknown[]) => Promise<{ rows: Record<string, unknown>[] }>;
+};
 
 /** One query for everything an email or reminder needs. `q` is a pool or a transaction client. */
-export const loadAppointmentView = async (q: Queryable, id: string): Promise<AppointmentView | null> => {
+export const loadAppointmentView = async (
+  q: Queryable,
+  id: string,
+): Promise<AppointmentView | null> => {
   const r = await q.query(
     `SELECT a.id, a.status, a.version, a.starts_at, a.ends_at, a.clinic_id, a.doctor_id, a.local_date::text AS local_date,
             a.price_minor, a.currency, p.id AS patient_id, p.full_name, p.email, p.user_id, p.locale,

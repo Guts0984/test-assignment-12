@@ -9,9 +9,26 @@ import { AppointmentList } from '@/widgets/appointment-list';
 import { MyWaitlist, OffersPanel } from '@/features/waitlist';
 import { useMe } from '@/entities/session';
 
-const NotificationsDocument = graphql(`query MyNotifications { myNotifications(limit: 10) { id kind createdAt readAt } }`);
+const NotificationsDocument = graphql(`
+  query MyNotifications {
+    myNotifications(limit: 10) {
+      id
+      kind
+      createdAt
+      readAt
+    }
+  }
+`);
 const TABS = ['tab'] as const;
-const KINDS: readonly string[] = ['booking_confirmed', 'booking_rescheduled', 'booking_cancelled', 'sick_cancel', 'waitlist_offer', 'reminder_24h', 'reminder_2h'];
+const KINDS: readonly string[] = [
+  'booking_confirmed',
+  'booking_rescheduled',
+  'booking_cancelled',
+  'sick_cancel',
+  'waitlist_offer',
+  'reminder_24h',
+  'reminder_2h',
+];
 // a notification is not tied to one clinic, so its creation time is shown in the viewer's own zone, in the page language
 const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
@@ -30,14 +47,37 @@ export const CabinetPage = () => {
       <MyWaitlist />
       <div role="tablist" aria-label={t('title')} className="mb-4 flex gap-2">
         {(['UPCOMING', 'PAST'] as const).map((k) => (
-          <button key={k} role="tab" type="button" aria-selected={tab === k} onClick={() => setQ({ tab: k === 'PAST' ? 'past' : '' })}
-            className={`rounded-md px-3 py-1.5 text-sm focus-visible:outline-2 focus-visible:outline-sky-700 ${tab === k ? 'bg-sky-700 text-white' : 'bg-white ring-1 ring-slate-300'}`}>{k === 'PAST' ? t('past') : t('upcoming')}</button>
+          <button
+            key={k}
+            role="tab"
+            type="button"
+            aria-selected={tab === k}
+            onClick={() => setQ({ tab: k === 'PAST' ? 'past' : '' })}
+            className={`rounded-md px-3 py-1.5 text-sm focus-visible:outline-2 focus-visible:outline-sky-700 ${tab === k ? 'bg-sky-700 text-white' : 'bg-white ring-1 ring-slate-300'}`}
+          >
+            {k === 'PAST' ? t('past') : t('upcoming')}
+          </button>
         ))}
       </div>
-      <div role="tabpanel"><AppointmentList scope={tab} /></div>
+      <div role="tabpanel">
+        <AppointmentList scope={tab} />
+      </div>
       {(data?.myNotifications ?? []).length > 0 && (
-        <section aria-labelledby="nt" className="mt-8"><h2 id="nt" className="mb-2 text-lg font-semibold">{t('notifications')}</h2>
-          <ul className="text-sm text-slate-700">{data?.myNotifications.map((n) => <li key={n.id} data-kind={n.kind}>{KINDS.includes(n.kind) ? t(`kinds.${n.kind}` as 'kinds.booking_confirmed') : t('kindUnknown')} · <time dateTime={n.createdAt}>{f.dateTime(n.createdAt, tz)}</time></li>)}</ul></section>
+        <section aria-labelledby="nt" className="mt-8">
+          <h2 id="nt" className="mb-2 text-lg font-semibold">
+            {t('notifications')}
+          </h2>
+          <ul className="text-sm text-slate-700">
+            {data?.myNotifications.map((n) => (
+              <li key={n.id} data-kind={n.kind}>
+                {KINDS.includes(n.kind)
+                  ? t(`kinds.${n.kind}` as 'kinds.booking_confirmed')
+                  : t('kindUnknown')}{' '}
+                · <time dateTime={n.createdAt}>{f.dateTime(n.createdAt, tz)}</time>
+              </li>
+            ))}
+          </ul>
+        </section>
       )}
     </>
   );

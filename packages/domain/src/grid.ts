@@ -74,7 +74,12 @@ export const workingIntervals = (
   if (ex) {
     if (ex.kind !== 'extra_day' && ex.kind !== 'custom_hours') return NO_WORK;
     if (ex.clinicId !== input.clinicId || !ex.startLocal || !ex.endLocal) return NO_WORK;
-    hours = { start: ex.startLocal, end: ex.endLocal, bs: ex.breakStartLocal, be: ex.breakEndLocal };
+    hours = {
+      start: ex.startLocal,
+      end: ex.endLocal,
+      bs: ex.breakStartLocal,
+      be: ex.breakEndLocal,
+    };
   } else {
     const wd = isoWeekday(date);
     const t = input.templates.find((x) => x.doctorId === doctorId && x.weekday === wd);
@@ -96,7 +101,9 @@ export const workingIntervals = (
 
 type Busy = { s: number; e: number };
 const toBusy = (list: readonly { startsAt: Date; occupiedUntil: Date }[]): Busy[] =>
-  list.map((b) => ({ s: b.startsAt.getTime(), e: b.occupiedUntil.getTime() })).sort((a, b) => a.s - b.s);
+  list
+    .map((b) => ({ s: b.startsAt.getTime(), e: b.occupiedUntil.getTime() }))
+    .sort((a, b) => a.s - b.s);
 
 const overlaps = (busy: Busy[], s: number, e: number): boolean => {
   // busy is sorted by start; a linear pass over the few intervals near the day is enough
@@ -131,7 +138,8 @@ export const computeSlots = (input: GridInput): Slot[] => {
   const roomBusy = input.needsUltrasound ? toBusy(input.roomBusy) : [];
   const busyByDoctor = new Map<string, Busy[]>();
   for (const id of input.doctorIds) busyByDoctor.set(id, []);
-  for (const b of input.doctorBusy) busyByDoctor.get(b.doctorId)?.push({ s: b.startsAt.getTime(), e: b.occupiedUntil.getTime() });
+  for (const b of input.doctorBusy)
+    busyByDoctor.get(b.doctorId)?.push({ s: b.startsAt.getTime(), e: b.occupiedUntil.getTime() });
   for (const list of busyByDoctor.values()) list.sort((a, b) => a.s - b.s);
 
   const out: Slot[] = [];
@@ -178,7 +186,10 @@ export const computeSlots = (input: GridInput): Slot[] => {
 
 /** Is `startsAt` a start the schedule allows for this service, ignoring who else is booked? */
 export const isWorkingStart = (
-  input: Omit<GridInput, 'doctorBusy' | 'roomBusy' | 'days' | 'fromDate' | 'now' | 'minLeadMinutes' | 'maxAdvanceDays'>,
+  input: Omit<
+    GridInput,
+    'doctorBusy' | 'roomBusy' | 'days' | 'fromDate' | 'now' | 'minLeadMinutes' | 'maxAdvanceDays'
+  >,
   doctorId: string,
   startsAt: Date,
   localDate: string,

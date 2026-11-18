@@ -18,9 +18,19 @@ export const RegistrarSchedulePage = () => {
   return (
     <>
       <PageTitle>{t('schedule')}</PageTitle>
-      <SelectField className="mb-6 max-w-sm" label={t('chooseDoctor')} value={q.doctor} onChange={(e) => setQ({ doctor: e.target.value })} data-testid="schedule-doctor">
+      <SelectField
+        className="mb-6 max-w-sm"
+        label={t('chooseDoctor')}
+        value={q.doctor}
+        onChange={(e) => setQ({ doctor: e.target.value })}
+        data-testid="schedule-doctor"
+      >
         <option value="">{t('chooseDoctor')}</option>
-        {doctors.map((d) => <option key={d.id} value={d.id}>{d.fullName}</option>)}
+        {doctors.map((d) => (
+          <option key={d.id} value={d.id}>
+            {d.fullName}
+          </option>
+        ))}
       </SelectField>
       <ScheduleEditor doctorId={q.doctor} clinicId={me.clinicId} />
     </>

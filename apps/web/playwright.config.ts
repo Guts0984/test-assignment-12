@@ -13,5 +13,14 @@ export default defineConfig({
   use: { baseURL, trace: 'retain-on-failure', actionTimeout: 15_000 },
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
   // `E2E_START_WEB=1`: serve the production build here (otherwise the stack serves it).
-  ...(process.env['E2E_START_WEB'] ? { webServer: { command: 'pnpm start -p 3190', url: baseURL, reuseExistingServer: true, timeout: 60_000 } } : {}),
+  ...(process.env['E2E_START_WEB']
+    ? {
+        webServer: {
+          command: 'pnpm start -p 3190',
+          url: baseURL,
+          reuseExistingServer: true,
+          timeout: 60_000,
+        },
+      }
+    : {}),
 });

@@ -20,11 +20,21 @@ export type Report = {
     lateCancelPercent: number;
   };
   waitlist: { offered: number; accepted: number; acceptedPercent: number };
-  revenue: { serviceId: string; serviceCode: string; currency: 'UAH' | 'PLN'; revenueMinor: number; visits: number }[];
+  revenue: {
+    serviceId: string;
+    serviceCode: string;
+    nameUk: string;
+    nameEn: string;
+    namePl: string;
+    currency: 'UAH' | 'PLN';
+    revenueMinor: number;
+    visits: number;
+  }[];
 };
 
 type Row = Record<string, unknown>;
-const pct = (num: number, den: number): number => (den === 0 ? 0 : Math.round((num / den) * 1000) / 10);
+const pct = (num: number, den: number): number =>
+  den === 0 ? 0 : Math.round((num / den) * 1000) / 10;
 
 /**
  * Network report for [from, to] (clinic-local dates, inclusive).
@@ -87,11 +97,11 @@ export const loadReport = async (db: Queryable, p: ReportParams): Promise<Report
       WHERE a.local_date BETWEEN ${p.from}::date AND ${p.to}::date
         AND (${clinic}::uuid IS NULL OR a.clinic_id = ${clinic}::uuid)`),
     db.execute(sql`
-      SELECT a.service_id, s.code, a.currency, sum(a.price_minor)::bigint AS revenue, count(*) AS visits
+      SELECT a.service_id, s.code, s.name_uk, s.name_en, s.name_pl, a.currency, sum(a.price_minor)::bigint AS revenue, count(*) AS visits
       FROM appointments a JOIN services s ON s.id = a.service_id
       WHERE a.local_date BETWEEN ${p.from}::date AND ${p.to}::date AND a.status = 'completed'
         AND (${clinic}::uuid IS NULL OR a.clinic_id = ${clinic}::uuid)
-      GROUP BY a.service_id, s.code, a.currency
+      GROUP BY a.service_id, s.code, s.name_uk, s.name_en, s.name_pl, a.currency
       ORDER BY a.currency, revenue DESC`),
   ]);
 
@@ -127,6 +137,9 @@ export const loadReport = async (db: Queryable, p: ReportParams): Promise<Report
     revenue: (rev.rows as Row[]).map((r) => ({
       serviceId: String(r['service_id']),
       serviceCode: String(r['code']),
+      nameUk: String(r['name_uk']),
+      nameEn: String(r['name_en']),
+      namePl: String(r['name_pl']),
       currency: String(r['currency']) as 'UAH' | 'PLN',
       revenueMinor: Number(r['revenue']),
       visits: Number(r['visits']),

@@ -20,18 +20,38 @@ export type SessionUser = {
 export const hashToken = (t: string): string => createHash('sha256').update(t).digest('hex');
 
 export const toActor = (u: SessionUser | null): Actor | null =>
-  u ? { userId: u.userId, role: u.role, patientId: u.patientId, clinicId: u.clinicId, doctorId: u.doctorId } : null;
+  u
+    ? {
+        userId: u.userId,
+        role: u.role,
+        patientId: u.patientId,
+        clinicId: u.clinicId,
+        doctorId: u.doctorId,
+      }
+    : null;
 
 /** Opaque random token; only its SHA-256 is stored, so a database leak does not leak sessions. */
-export const createSession = async (db: Db, userId: string, ttlHours: number, now: Date): Promise<{ token: string; expiresAt: Date }> => {
+export const createSession = async (
+  db: Db,
+  userId: string,
+  ttlHours: number,
+  now: Date,
+): Promise<{ token: string; expiresAt: Date }> => {
   const token = randomBytes(32).toString('base64url');
   const expiresAt = new Date(now.getTime() + ttlHours * 3_600_000);
-  await db.execute(sql`INSERT INTO sessions (token_hash, user_id, created_at, expires_at) VALUES (${hashToken(token)}, ${userId}::uuid, ${now.toISOString()}::timestamptz, ${expiresAt.toISOString()}::timestamptz)`);
+  await db.execute(
+    sql`INSERT INTO sessions (token_hash, user_id, created_at, expires_at) VALUES (${hashToken(token)}, ${userId}::uuid, ${now.toISOString()}::timestamptz, ${expiresAt.toISOString()}::timestamptz)`,
+  );
   return { token, expiresAt };
 };
 
-export const findSessionUser = async (db: Db, token: string | undefined, now: Date): Promise<SessionUser | null> => {
-  if (!token || token.length < 20 || token.length > 128 || !/^[A-Za-z0-9_-]+$/.test(token)) return null;
+export const findSessionUser = async (
+  db: Db,
+  token: string | undefined,
+  now: Date,
+): Promise<SessionUser | null> => {
+  if (!token || token.length < 20 || token.length > 128 || !/^[A-Za-z0-9_-]+$/.test(token))
+    return null;
   const r = await db.execute(sql`
     SELECT u.id AS user_id, u.email, u.role, u.clinic_id, u.doctor_id, p.id AS patient_id, p.full_name, p.locale
     FROM sessions s JOIN users u ON u.id = s.user_id LEFT JOIN patients p ON p.user_id = u.id
@@ -51,7 +71,9 @@ export const findSessionUser = async (db: Db, token: string | undefined, now: Da
 };
 
 export const revokeSession = async (db: Db, token: string, now: Date): Promise<void> => {
-  await db.execute(sql`UPDATE sessions SET revoked_at = ${now.toISOString()}::timestamptz WHERE token_hash = ${hashToken(token)} AND revoked_at IS NULL`);
+  await db.execute(
+    sql`UPDATE sessions SET revoked_at = ${now.toISOString()}::timestamptz WHERE token_hash = ${hashToken(token)} AND revoked_at IS NULL`,
+  );
 };
 
 export const parseCookies = (header: string | undefined): Record<string, string> => {

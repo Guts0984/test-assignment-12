@@ -8,16 +8,34 @@ import type { AvailabilityQuery } from '@/shared/api';
 export const AvailabilityDocument = graphql(`
   query Availability($input: AvailabilityInput!) {
     availability(input: $input) {
-      clinicId timeZone currency durationMin priceMinor
-      doctors { id fullName specialty }
-      slots { doctorId startsAt endsAt localDate localTime }
+      clinicId
+      timeZone
+      currency
+      durationMin
+      priceMinor
+      doctors {
+        id
+        fullName
+        specialty
+      }
+      slots {
+        doctorId
+        startsAt
+        endsAt
+        localDate
+        localTime
+      }
     }
   }
 `);
 
 const AvailabilityChangedDocument = graphql(`
   subscription AvailabilityChanged($clinicId: ID!, $doctorId: ID) {
-    availabilityChanged(clinicId: $clinicId, doctorId: $doctorId) { clinicId doctorId localDate }
+    availabilityChanged(clinicId: $clinicId, doctorId: $doctorId) {
+      clinicId
+      doctorId
+      localDate
+    }
   }
 `);
 
@@ -33,14 +51,25 @@ export const useAvailability = (p: { clinicId: string; serviceId: string; doctor
   const paused = !p.clinicId || !p.serviceId;
   const [{ data, fetching, error }, refetch] = useQuery({
     query: AvailabilityDocument,
-    variables: { input: { clinicId: p.clinicId, serviceId: p.serviceId, doctorId: p.doctorId || null } },
+    variables: {
+      input: { clinicId: p.clinicId, serviceId: p.serviceId, doctorId: p.doctorId || null },
+    },
     pause: paused,
     requestPolicy: 'cache-and-network',
   });
-  const [event] = useSubscription({ query: AvailabilityChangedDocument, variables: { clinicId: p.clinicId, doctorId: p.doctorId || null }, pause: paused });
+  const [event] = useSubscription({
+    query: AvailabilityChangedDocument,
+    variables: { clinicId: p.clinicId, doctorId: p.doctorId || null },
+    pause: paused,
+  });
   const stamp = event.data?.availabilityChanged;
   useEffect(() => {
     if (stamp) refetch({ requestPolicy: 'network-only' });
   }, [stamp]);
-  return { availability: data?.availability ?? null, fetching, error, refetch: () => refetch({ requestPolicy: 'network-only' }) };
+  return {
+    availability: data?.availability ?? null,
+    fetching,
+    error,
+    refetch: () => refetch({ requestPolicy: 'network-only' }),
+  };
 };

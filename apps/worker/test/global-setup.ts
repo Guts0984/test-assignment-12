@@ -24,12 +24,18 @@ const freePort = (): Promise<number> =>
     s.on('error', reject);
   });
 
-const started: { pg?: StartedPostgreSqlContainer; redis?: StartedTestContainer; mail?: StartedTestContainer } = {};
+const started: {
+  pg?: StartedPostgreSqlContainer;
+  redis?: StartedTestContainer;
+  mail?: StartedTestContainer;
+} = {};
 
 // Fixed host ports: tests stop / restart Redis and Mailpit and must find them at the same address.
 export default async function setup(project: TestProject): Promise<() => Promise<void>> {
   const [redisPort, smtpPort, uiPort] = await Promise.all([freePort(), freePort(), freePort()]);
-  started.pg = await new PostgreSqlContainer('postgres:16-alpine').withCommand(['postgres', '-c', 'max_connections=300', '-c', 'fsync=off']).start();
+  started.pg = await new PostgreSqlContainer('postgres:16-alpine')
+    .withCommand(['postgres', '-c', 'max_connections=300', '-c', 'fsync=off'])
+    .start();
   started.redis = await new GenericContainer('redis:7-alpine')
     .withCommand(['redis-server', '--save', '', '--appendonly', 'no']) // no persistence: a restart really loses everything
     .withExposedPorts({ container: 6379, host: redisPort })

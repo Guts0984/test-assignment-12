@@ -12,14 +12,17 @@ export const findOrCreatePhonePatient = (
   p: { fullName: string; phone: string; email?: string | undefined },
 ): Promise<Result<Patient, AppError>> =>
   transact(ctx, actor, async ({ tx, now }) => {
-    if (actor.role !== 'registrar') return fail('FORBIDDEN', 'Only the registrar registers phone patients');
+    if (actor.role !== 'registrar')
+      return fail('FORBIDDEN', 'Only the registrar registers phone patients');
     const [row] = await tx
       .insert(schema.patients)
       .values({ fullName: p.fullName, phone: p.phone, email: p.email ?? null, createdAt: now })
       .onConflictDoNothing({ target: schema.patients.phone })
       .returning();
     if (row) return ok(row);
-    const found = (await tx.select().from(schema.patients).where(eq(schema.patients.phone, p.phone)))[0];
+    const found = (
+      await tx.select().from(schema.patients).where(eq(schema.patients.phone, p.phone))
+    )[0];
     return found ? ok(found) : fail('NOT_FOUND', 'Patient not found');
   });
 
@@ -31,5 +34,12 @@ export const findOrCreatePhonePatient = (
 export const registrarBook = (
   ctx: Ctx,
   actor: Actor,
-  input: { clinicId: string; doctorId: string; serviceId: string; startsAt: Date; patientId: string; idempotencyKey: string },
+  input: {
+    clinicId: string;
+    doctorId: string;
+    serviceId: string;
+    startsAt: Date;
+    patientId: string;
+    idempotencyKey: string;
+  },
 ): Promise<Result<Appointment, AppError>> => registrarBookingFlow(ctx, actor, input);

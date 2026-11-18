@@ -4,7 +4,15 @@ import { createApi } from './app.js';
 const main = async (): Promise<void> => {
   const env = loadApiEnv();
   const api = await createApi(env);
-  console.log(JSON.stringify({ at: new Date().toISOString(), svc: 'api', msg: 'listening', port: api.port, env: env.NODE_ENV }));
+  console.log(
+    JSON.stringify({
+      at: new Date().toISOString(),
+      svc: 'api',
+      msg: 'listening',
+      port: api.port,
+      env: env.NODE_ENV,
+    }),
+  );
   const stop = (): void => {
     void api.close().finally(() => process.exit(0));
     setTimeout(() => process.exit(1), 15_000).unref();

@@ -19,7 +19,10 @@ export const localDateSchema = z
     const d = new Date(`${s}T00:00:00Z`);
     return !Number.isNaN(d.getTime()) && d.toISOString().startsWith(s);
   }, 'Not a real calendar date')
-  .refine((s) => s >= MIN_DATE && s <= MAX_DATE, `Date must be between ${MIN_DATE} and ${MAX_DATE}`);
+  .refine(
+    (s) => s >= MIN_DATE && s <= MAX_DATE,
+    `Date must be between ${MIN_DATE} and ${MAX_DATE}`,
+  );
 
 /**
  * Text Postgres or the UI cannot sensibly hold: NUL and other control characters (newline and tab
@@ -32,7 +35,10 @@ const CONTROL_EXCEPT_WS = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]
 const LONE_SURROGATE = /[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/;
 export const hasForbiddenText = (s: string, allowWhitespace = false): boolean =>
   (allowWhitespace ? CONTROL_EXCEPT_WS : CONTROL).test(s) || LONE_SURROGATE.test(s);
-const cleanText = (allowWhitespace = false) => (s: string): boolean => !hasForbiddenText(s, allowWhitespace);
+const cleanText =
+  (allowWhitespace = false) =>
+  (s: string): boolean =>
+    !hasForbiddenText(s, allowWhitespace);
 export const localTimeSchema = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Expected HH:mm');
 export const instantSchema = z.iso
   .datetime({ offset: true })
@@ -48,7 +54,12 @@ export const phoneSchema = z
   .max(32)
   .transform((s) => s.replace(/[\s\-()]/g, ''))
   .pipe(z.string().regex(/^\+\d{8,15}$/, 'Use international format, e.g. +380501234567'));
-const personNameSchema = z.string().trim().min(2).max(100).refine(cleanText(), 'Contains forbidden characters');
+const personNameSchema = z
+  .string()
+  .trim()
+  .min(2)
+  .max(100)
+  .refine(cleanText(), 'Contains forbidden characters');
 
 export const signUpSchema = z.object({
   email: emailSchema,
@@ -102,7 +113,12 @@ export type RescheduleInput = z.infer<typeof rescheduleSchema>;
 
 export const cancelSchema = z.object({
   appointmentId: idSchema,
-  reason: z.string().trim().max(500).refine(cleanText(true), 'Contains forbidden characters').optional(),
+  reason: z
+    .string()
+    .trim()
+    .max(500)
+    .refine(cleanText(true), 'Contains forbidden characters')
+    .optional(),
 });
 
 export const joinWaitlistSchema = z
@@ -114,7 +130,8 @@ export const joinWaitlistSchema = z
   })
   .superRefine((v, ctx) => {
     const span = daysBetween(v.fromDate, v.toDate);
-    if (span < 0) ctx.addIssue({ code: 'custom', path: ['toDate'], message: 'toDate before fromDate' });
+    if (span < 0)
+      ctx.addIssue({ code: 'custom', path: ['toDate'], message: 'toDate before fromDate' });
     else if (span > MAX_WAITLIST_RANGE_DAYS)
       ctx.addIssue({
         code: 'custom',
@@ -131,7 +148,10 @@ const stepAligned = (t: string): boolean => {
   const [h, m] = t.split(':').map(Number);
   return ((h ?? 0) * 60 + (m ?? 0)) % SLOT_STEP_MINUTES === 0;
 };
-const alignedTime = localTimeSchema.refine(stepAligned, `Must be a multiple of ${SLOT_STEP_MINUTES} min`);
+const alignedTime = localTimeSchema.refine(
+  stepAligned,
+  `Must be a multiple of ${SLOT_STEP_MINUTES} min`,
+);
 
 export const scheduleTemplateSchema = z
   .object({
@@ -149,16 +169,32 @@ export const scheduleTemplateSchema = z
     const hasBreak = v.breakStartLocal !== null || v.breakEndLocal !== null;
     if (hasBreak) {
       if (v.breakStartLocal === null || v.breakEndLocal === null)
-        ctx.addIssue({ code: 'custom', path: ['breakEndLocal'], message: 'Both break bounds required' });
-      else if (
-        !(v.startLocal <= v.breakStartLocal && v.breakStartLocal < v.breakEndLocal && v.breakEndLocal <= v.endLocal)
-      )
-        ctx.addIssue({ code: 'custom', path: ['breakStartLocal'], message: 'Break must sit inside working hours' });
+        ctx.addIssue({
+          code: 'custom',
+          path: ['breakEndLocal'],
+          message: 'Both break bounds required',
+        });
+      else if (!(
+        v.startLocal <= v.breakStartLocal &&
+        v.breakStartLocal < v.breakEndLocal &&
+        v.breakEndLocal <= v.endLocal
+      ))
+        ctx.addIssue({
+          code: 'custom',
+          path: ['breakStartLocal'],
+          message: 'Break must sit inside working hours',
+        });
     }
   });
 export type ScheduleTemplateInput = z.infer<typeof scheduleTemplateSchema>;
 
-export const EXCEPTION_KINDS = ['vacation', 'sick', 'day_off', 'extra_day', 'custom_hours'] as const;
+export const EXCEPTION_KINDS = [
+  'vacation',
+  'sick',
+  'day_off',
+  'extra_day',
+  'custom_hours',
+] as const;
 export const scheduleExceptionSchema = z
   .object({
     doctorId: idSchema,
@@ -174,7 +210,11 @@ export const scheduleExceptionSchema = z
     const needsHours = v.kind === 'extra_day' || v.kind === 'custom_hours';
     if (needsHours) {
       if (!v.startLocal || !v.endLocal || !v.clinicId)
-        ctx.addIssue({ code: 'custom', path: ['startLocal'], message: 'clinic, start and end are required' });
+        ctx.addIssue({
+          code: 'custom',
+          path: ['startLocal'],
+          message: 'clinic, start and end are required',
+        });
       else if (v.startLocal >= v.endLocal)
         ctx.addIssue({ code: 'custom', path: ['endLocal'], message: 'End must be after start' });
     }
@@ -188,7 +228,8 @@ export const reportPeriodSchema = z
   .superRefine((v, ctx) => {
     const span = daysBetween(v.from, v.to);
     if (span < 0) ctx.addIssue({ code: 'custom', path: ['to'], message: 'to before from' });
-    else if (span > 366) ctx.addIssue({ code: 'custom', path: ['to'], message: 'Period is limited to 366 days' });
+    else if (span > 366)
+      ctx.addIssue({ code: 'custom', path: ['to'], message: 'Period is limited to 366 days' });
   });
 export type ReportPeriod = z.infer<typeof reportPeriodSchema>;
 

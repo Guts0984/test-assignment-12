@@ -7,7 +7,22 @@ import { graphql } from '@/shared/api';
 import { useFormat } from '@/shared/lib';
 
 const HistoryDocument = graphql(`
-  query AppointmentHistory($id: ID!) { appointment(id: $id) { id events { type at actorRole late reason fromStatus toStatus oldStartsAt newStartsAt } } }
+  query AppointmentHistory($id: ID!) {
+    appointment(id: $id) {
+      id
+      events {
+        type
+        at
+        actorRole
+        late
+        reason
+        fromStatus
+        toStatus
+        oldStartsAt
+        newStartsAt
+      }
+    }
+  }
 `);
 
 const Events = ({ id, tz }: { id: string; tz: string }) => {
@@ -18,8 +33,12 @@ const Events = ({ id, tz }: { id: string; tz: string }) => {
     <ol className="mt-2 flex flex-col gap-1 text-xs text-slate-700" data-testid="history">
       {data?.appointment?.events.map((e, i) => (
         <li key={i}>
-          {f.dateTime(e.at, tz)} · {e.type} · {e.actorRole}{e.late ? ' · late' : ''}{e.reason ? ` · ${e.reason}` : ''}
-          {e.type === 'rescheduled' && e.oldStartsAt && e.newStartsAt ? ` (${f.dateTime(e.oldStartsAt, tz)} → ${f.dateTime(e.newStartsAt, tz)})` : ''}
+          {f.dateTime(e.at, tz)} · {e.type} · {e.actorRole}
+          {e.late ? ' · late' : ''}
+          {e.reason ? ` · ${e.reason}` : ''}
+          {e.type === 'rescheduled' && e.oldStartsAt && e.newStartsAt
+            ? ` (${f.dateTime(e.oldStartsAt, tz)} → ${f.dateTime(e.newStartsAt, tz)})`
+            : ''}
         </li>
       ))}
     </ol>

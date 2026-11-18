@@ -2,7 +2,7 @@ packages:
   - apps/*
   - packages/*
 allowBuilds:
-  "@apollo/protobufjs": false
+  '@apollo/protobufjs': false
   msgpackr-extract: false
   cpu-features: false
   esbuild: true

@@ -11,7 +11,11 @@ const schema = z.object({
   DATABASE_URL: z.string().min(1),
   REDIS_URL: z.string().default('redis://localhost:6379'),
   COOKIE_SECURE: z.stringbool().default(false),
-  SESSION_TTL_HOURS: z.coerce.number().int().positive().default(24 * 7),
+  SESSION_TTL_HOURS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(24 * 7),
   /** Comma separated origins allowed to call the API with cookies. */
   CORS_ORIGINS: z.string().default('http://localhost:3000'),
   /**
@@ -44,7 +48,9 @@ export type ApiEnv = z.infer<typeof schema>;
 export const loadApiEnv = (source: NodeJS.ProcessEnv = process.env): ApiEnv => {
   const r = schema.safeParse(source);
   if (!r.success) {
-    throw new Error(`Invalid environment: ${r.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')}`);
+    throw new Error(
+      `Invalid environment: ${r.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')}`,
+    );
   }
   return r.data;
 };

@@ -12,7 +12,10 @@ export const useUrlState = <K extends string>(keys: readonly K[]) => {
   const params = useSearchParams();
   const router = useRouter();
   const pathname = usePathname();
-  const values = useMemo(() => Object.fromEntries(keys.map((k) => [k, params?.get(k) ?? ''])) as Record<K, string>, [params, keys]);
+  const values = useMemo(
+    () => Object.fromEntries(keys.map((k) => [k, params?.get(k) ?? ''])) as Record<K, string>,
+    [params, keys],
+  );
   const set = useCallback(
     (patch: Partial<Record<K, string>>, mode: 'push' | 'replace' = 'push') => {
       const next = new URLSearchParams(params?.toString() ?? '');

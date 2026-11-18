@@ -11,6 +11,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
       - run: pnpm lint
+      - run: pnpm format:check
       - run: pnpm --filter @clinic/web lint:fsd
       - run: pnpm --filter @clinic/web codegen
       - run: git diff --exit-code apps/web/src/shared/api/generated

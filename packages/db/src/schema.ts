@@ -41,7 +41,12 @@ export const exceptionKindEnum = pgEnum('exception_kind', [
   'custom_hours',
 ]);
 export const waitlistStatusEnum = pgEnum('waitlist_status', ['active', 'fulfilled', 'cancelled']);
-export const offerStatusEnum = pgEnum('offer_status', ['pending', 'accepted', 'declined', 'expired']);
+export const offerStatusEnum = pgEnum('offer_status', [
+  'pending',
+  'accepted',
+  'declined',
+  'expired',
+]);
 export const taskStatusEnum = pgEnum('task_status', ['pending', 'done', 'cancelled']);
 export const penaltyKindEnum = pgEnum('penalty_kind', ['no_show', 'late_cancel']);
 
@@ -57,7 +62,9 @@ export const rooms = pgTable(
   'rooms',
   {
     id: id(),
-    clinicId: uuid('clinic_id').notNull().references(() => clinics.id),
+    clinicId: uuid('clinic_id')
+      .notNull()
+      .references(() => clinics.id),
     kind: text('kind').notNull().default('ultrasound'),
     name: text('name').notNull(),
   },
@@ -77,19 +84,29 @@ export const services = pgTable(
     needsUltrasound: boolean('needs_ultrasound').notNull().default(false),
   },
   (t) => [
-    check('services_duration_chk', sql`${t.durationMin} BETWEEN 15 AND 90 AND ${t.durationMin} % 15 = 0`),
+    check(
+      'services_duration_chk',
+      sql`${t.durationMin} BETWEEN 15 AND 90 AND ${t.durationMin} % 15 = 0`,
+    ),
   ],
 );
 
 export const clinicServices = pgTable(
   'clinic_services',
   {
-    clinicId: uuid('clinic_id').notNull().references(() => clinics.id),
-    serviceId: uuid('service_id').notNull().references(() => services.id),
+    clinicId: uuid('clinic_id')
+      .notNull()
+      .references(() => clinics.id),
+    serviceId: uuid('service_id')
+      .notNull()
+      .references(() => services.id),
     /** Minor units (kopiyky / grosze) in the clinic currency. */
     priceMinor: bigint('price_minor', { mode: 'number' }).notNull(),
   },
-  (t) => [primaryKey({ columns: [t.clinicId, t.serviceId] }), check('clinic_services_price_chk', sql`${t.priceMinor} >= 0`)],
+  (t) => [
+    primaryKey({ columns: [t.clinicId, t.serviceId] }),
+    check('clinic_services_price_chk', sql`${t.priceMinor} >= 0`),
+  ],
 );
 
 export const doctors = pgTable('doctors', {
@@ -101,10 +118,17 @@ export const doctors = pgTable('doctors', {
 export const doctorServices = pgTable(
   'doctor_services',
   {
-    doctorId: uuid('doctor_id').notNull().references(() => doctors.id),
-    serviceId: uuid('service_id').notNull().references(() => services.id),
+    doctorId: uuid('doctor_id')
+      .notNull()
+      .references(() => doctors.id),
+    serviceId: uuid('service_id')
+      .notNull()
+      .references(() => services.id),
   },
-  (t) => [primaryKey({ columns: [t.doctorId, t.serviceId] }), index('doctor_services_service_idx').on(t.serviceId)],
+  (t) => [
+    primaryKey({ columns: [t.doctorId, t.serviceId] }),
+    index('doctor_services_service_idx').on(t.serviceId),
+  ],
 );
 
 export const users = pgTable(
@@ -130,7 +154,9 @@ export const sessions = pgTable(
   {
     id: id(),
     tokenHash: text('token_hash').notNull().unique(),
-    userId: uuid('user_id').notNull().references(() => users.id),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id),
     createdAt: ts('created_at').notNull().defaultNow(),
     expiresAt: ts('expires_at').notNull(),
     revokedAt: ts('revoked_at'),
@@ -138,26 +164,29 @@ export const sessions = pgTable(
   (t) => [index('sessions_user_idx').on(t.userId)],
 );
 
-export const patients = pgTable(
-  'patients',
-  {
-    id: id(),
-    userId: uuid('user_id').unique().references(() => users.id),
-    fullName: text('full_name').notNull(),
-    phone: text('phone').notNull().unique(),
-    email: text('email'),
-    locale: localeEnum('locale').notNull().default('uk'),
-    onlineBookingBlockedUntil: ts('online_booking_blocked_until'),
-    createdAt: ts('created_at').notNull().defaultNow(),
-  },
-);
+export const patients = pgTable('patients', {
+  id: id(),
+  userId: uuid('user_id')
+    .unique()
+    .references(() => users.id),
+  fullName: text('full_name').notNull(),
+  phone: text('phone').notNull().unique(),
+  email: text('email'),
+  locale: localeEnum('locale').notNull().default('uk'),
+  onlineBookingBlockedUntil: ts('online_booking_blocked_until'),
+  createdAt: ts('created_at').notNull().defaultNow(),
+});
 
 export const scheduleTemplates = pgTable(
   'schedule_templates',
   {
     id: id(),
-    doctorId: uuid('doctor_id').notNull().references(() => doctors.id),
-    clinicId: uuid('clinic_id').notNull().references(() => clinics.id),
+    doctorId: uuid('doctor_id')
+      .notNull()
+      .references(() => doctors.id),
+    clinicId: uuid('clinic_id')
+      .notNull()
+      .references(() => clinics.id),
     weekday: smallint('weekday').notNull(),
     startLocal: time('start_local').notNull(),
     endLocal: time('end_local').notNull(),
@@ -180,7 +209,9 @@ export const scheduleExceptions = pgTable(
   'schedule_exceptions',
   {
     id: id(),
-    doctorId: uuid('doctor_id').notNull().references(() => doctors.id),
+    doctorId: uuid('doctor_id')
+      .notNull()
+      .references(() => doctors.id),
     localDate: date('local_date', { mode: 'string' }).notNull(),
     kind: exceptionKindEnum('kind').notNull(),
     clinicId: uuid('clinic_id').references(() => clinics.id),
@@ -204,10 +235,18 @@ export const appointments = pgTable(
   'appointments',
   {
     id: id(),
-    patientId: uuid('patient_id').notNull().references(() => patients.id),
-    doctorId: uuid('doctor_id').notNull().references(() => doctors.id),
-    clinicId: uuid('clinic_id').notNull().references(() => clinics.id),
-    serviceId: uuid('service_id').notNull().references(() => services.id),
+    patientId: uuid('patient_id')
+      .notNull()
+      .references(() => patients.id),
+    doctorId: uuid('doctor_id')
+      .notNull()
+      .references(() => doctors.id),
+    clinicId: uuid('clinic_id')
+      .notNull()
+      .references(() => clinics.id),
+    serviceId: uuid('service_id')
+      .notNull()
+      .references(() => services.id),
     /** Filled by trigger from the service + clinic: the UZI room is never trusted from the caller. */
     roomId: uuid('room_id').references(() => rooms.id),
     startsAt: ts('starts_at').notNull(),
@@ -235,7 +274,9 @@ export const appointments = pgTable(
     index('appointments_clinic_starts_idx').on(t.clinicId, t.startsAt),
     index('appointments_patient_starts_idx').on(t.patientId, t.startsAt),
     // covering index appointments_local_date_cov_idx (INCLUDE) lives in the custom SQL migration
-    index('appointments_held_expiry_idx').on(t.holdExpiresAt).where(sql`${t.status} = 'held'`),
+    index('appointments_held_expiry_idx')
+      .on(t.holdExpiresAt)
+      .where(sql`${t.status} = 'held'`),
     uniqueIndex('appointments_patient_doctor_day_uq')
       .on(t.patientId, t.doctorId, t.localDate)
       .where(sql`${t.status} <> 'cancelled'`),
@@ -251,7 +292,9 @@ export const appointmentEvents = pgTable(
   'appointment_events',
   {
     id: id(),
-    appointmentId: uuid('appointment_id').notNull().references(() => appointments.id),
+    appointmentId: uuid('appointment_id')
+      .notNull()
+      .references(() => appointments.id),
     at: ts('at').notNull().defaultNow(),
     actorUserId: uuid('actor_user_id'),
     actorRole: text('actor_role').notNull(),
@@ -282,9 +325,15 @@ export const waitlistEntries = pgTable(
   'waitlist_entries',
   {
     id: id(),
-    patientId: uuid('patient_id').notNull().references(() => patients.id),
-    doctorId: uuid('doctor_id').notNull().references(() => doctors.id),
-    serviceId: uuid('service_id').notNull().references(() => services.id),
+    patientId: uuid('patient_id')
+      .notNull()
+      .references(() => patients.id),
+    doctorId: uuid('doctor_id')
+      .notNull()
+      .references(() => doctors.id),
+    serviceId: uuid('service_id')
+      .notNull()
+      .references(() => services.id),
     fromDate: date('from_date', { mode: 'string' }).notNull(),
     toDate: date('to_date', { mode: 'string' }).notNull(),
     /** 1 = displaced by a sick day: served before ordinary entries. */
@@ -293,7 +342,9 @@ export const waitlistEntries = pgTable(
     createdAt: ts('created_at').notNull().defaultNow(),
   },
   (t) => [
-    index('waitlist_queue_idx').on(t.doctorId, t.priority.desc(), t.createdAt).where(sql`${t.status} = 'active'`),
+    index('waitlist_queue_idx')
+      .on(t.doctorId, t.priority.desc(), t.createdAt)
+      .where(sql`${t.status} = 'active'`),
     index('waitlist_patient_idx').on(t.patientId),
     check('waitlist_range_chk', sql`${t.fromDate} <= ${t.toDate}`),
   ],
@@ -303,8 +354,12 @@ export const waitlistOffers = pgTable(
   'waitlist_offers',
   {
     id: id(),
-    entryId: uuid('entry_id').notNull().references(() => waitlistEntries.id),
-    appointmentId: uuid('appointment_id').notNull().references(() => appointments.id),
+    entryId: uuid('entry_id')
+      .notNull()
+      .references(() => waitlistEntries.id),
+    appointmentId: uuid('appointment_id')
+      .notNull()
+      .references(() => appointments.id),
     expiresAt: ts('expires_at').notNull(),
     status: offerStatusEnum('status').notNull().default('pending'),
     createdAt: ts('created_at').notNull().defaultNow(),
@@ -312,7 +367,9 @@ export const waitlistOffers = pgTable(
   },
   (t) => [
     index('waitlist_offers_entry_idx').on(t.entryId),
-    uniqueIndex('waitlist_offers_appt_pending_uq').on(t.appointmentId).where(sql`${t.status} = 'pending'`),
+    uniqueIndex('waitlist_offers_appt_pending_uq')
+      .on(t.appointmentId)
+      .where(sql`${t.status} = 'pending'`),
     index('waitlist_offers_created_idx').on(t.createdAt),
   ],
 );
@@ -323,7 +380,9 @@ export const scheduledTasks = pgTable(
     id: id(),
     kind: text('kind').notNull(),
     runAt: ts('run_at').notNull(),
-    payload: jsonb('payload').notNull().default(sql`'{}'::jsonb`),
+    payload: jsonb('payload')
+      .notNull()
+      .default(sql`'{}'::jsonb`),
     dedupeKey: text('dedupe_key').notNull().unique(),
     status: taskStatusEnum('status').notNull().default('pending'),
     attempts: integer('attempts').notNull().default(0),
@@ -331,16 +390,24 @@ export const scheduledTasks = pgTable(
     createdAt: ts('created_at').notNull().defaultNow(),
     doneAt: ts('done_at'),
   },
-  (t) => [index('scheduled_tasks_due_idx').on(t.runAt).where(sql`${t.status} = 'pending'`)],
+  (t) => [
+    index('scheduled_tasks_due_idx')
+      .on(t.runAt)
+      .where(sql`${t.status} = 'pending'`),
+  ],
 );
 
 export const notifications = pgTable(
   'notifications',
   {
     id: id(),
-    userId: uuid('user_id').notNull().references(() => users.id),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id),
     kind: text('kind').notNull(),
-    payload: jsonb('payload').notNull().default(sql`'{}'::jsonb`),
+    payload: jsonb('payload')
+      .notNull()
+      .default(sql`'{}'::jsonb`),
     createdAt: ts('created_at').notNull().defaultNow(),
     readAt: ts('read_at'),
   },
@@ -351,9 +418,13 @@ export const penaltyEvents = pgTable(
   'penalty_events',
   {
     id: id(),
-    patientId: uuid('patient_id').notNull().references(() => patients.id),
+    patientId: uuid('patient_id')
+      .notNull()
+      .references(() => patients.id),
     kind: penaltyKindEnum('kind').notNull(),
-    appointmentId: uuid('appointment_id').notNull().references(() => appointments.id),
+    appointmentId: uuid('appointment_id')
+      .notNull()
+      .references(() => appointments.id),
     at: ts('at').notNull(),
   },
   (t) => [

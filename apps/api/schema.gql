@@ -300,6 +300,9 @@ input RespondOfferInput {
 
 type RevenueRow {
   currency: Currency!
+  nameEn: String!
+  namePl: String!
+  nameUk: String!
   revenueMinor: Float!
   serviceCode: String!
   serviceId: ID!

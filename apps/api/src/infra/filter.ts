@@ -14,9 +14,25 @@ export class GraphqlExceptionsFilter implements GqlExceptionFilter {
     if (exception instanceof GraphQLError) return exception;
     if (exception instanceof HttpException) {
       const status = exception.getStatus();
-      return gqlError(status === 404 ? 'NOT_FOUND' : status === 403 ? 'FORBIDDEN' : status === 401 ? 'UNAUTHENTICATED' : 'BAD_USER_INPUT', exception.message);
+      return gqlError(
+        status === 404
+          ? 'NOT_FOUND'
+          : status === 403
+            ? 'FORBIDDEN'
+            : status === 401
+              ? 'UNAUTHENTICATED'
+              : 'BAD_USER_INPUT',
+        exception.message,
+      );
     }
-    console.error(JSON.stringify({ at: new Date().toISOString(), svc: 'api', msg: 'unhandled', error: String((exception as Error)?.stack ?? exception).slice(0, 2000) }));
+    console.error(
+      JSON.stringify({
+        at: new Date().toISOString(),
+        svc: 'api',
+        msg: 'unhandled',
+        error: String((exception as Error)?.stack ?? exception).slice(0, 2000),
+      }),
+    );
     return gqlError('INTERNAL_SERVER_ERROR', 'Something went wrong on our side');
   }
 }

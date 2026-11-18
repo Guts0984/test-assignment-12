@@ -2,8 +2,12 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { gql, startFixture, type Fixture } from './helpers.js';
 
 let f: Fixture;
-beforeAll(async () => { f = await startFixture(); });
-afterAll(async () => { await f.stop(); });
+beforeAll(async () => {
+  f = await startFixture();
+});
+afterAll(async () => {
+  await f.stop();
+});
 
 describe('boots', () => {
   it('serves public data and health', async () => {

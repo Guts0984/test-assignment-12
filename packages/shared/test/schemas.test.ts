@@ -28,11 +28,20 @@ describe('schemas reject hostile input without throwing', () => {
     scheduleExceptionSchema,
   })) {
     it(`${name}: arbitrary values never throw`, () => {
-      fc.assert(fc.property(nasty, (v) => { schema.safeParse(v); }), { numRuns: 500 });
+      fc.assert(
+        fc.property(nasty, (v) => {
+          schema.safeParse(v);
+        }),
+        { numRuns: 500 },
+      );
     });
   }
   it('prototype pollution keys are ignored', () => {
-    const r = confirmBookingSchema.safeParse(JSON.parse(`{"__proto__":{"admin":true},"appointmentId":"${uuid}","idempotencyKey":"abcdefgh"}`));
+    const r = confirmBookingSchema.safeParse(
+      JSON.parse(
+        `{"__proto__":{"admin":true},"appointmentId":"${uuid}","idempotencyKey":"abcdefgh"}`,
+      ),
+    );
     expect(r.success).toBe(true);
     expect(({} as Record<string, unknown>)['admin']).toBeUndefined();
   });
@@ -40,7 +49,15 @@ describe('schemas reject hostile input without throwing', () => {
 
 describe('dates', () => {
   it('rejects impossible calendar dates', () => {
-    for (const d of ['2026-02-30', '2026-13-01', '2026-00-10', '26-01-01', '2026-1-1', '', "2026-01-01'; DROP"]) {
+    for (const d of [
+      '2026-02-30',
+      '2026-13-01',
+      '2026-00-10',
+      '26-01-01',
+      '2026-1-1',
+      '',
+      "2026-01-01'; DROP",
+    ]) {
       expect(localDateSchema.safeParse(d).success).toBe(false);
     }
     expect(localDateSchema.safeParse('2028-02-29').success).toBe(true);
@@ -51,31 +68,52 @@ describe('dates', () => {
 describe('holdSlot', () => {
   const base = { clinicId: uuid, doctorId: uuid, serviceId: uuid };
   it('needs an offset in the timestamp (no browser-local ambiguity)', () => {
-    expect(holdSlotSchema.safeParse({ ...base, startsAt: '2026-06-10T09:00:00' }).success).toBe(false);
-    expect(holdSlotSchema.safeParse({ ...base, startsAt: '2026-06-10T09:00:00+02:00' }).success).toBe(true);
+    expect(holdSlotSchema.safeParse({ ...base, startsAt: '2026-06-10T09:00:00' }).success).toBe(
+      false,
+    );
+    expect(
+      holdSlotSchema.safeParse({ ...base, startsAt: '2026-06-10T09:00:00+02:00' }).success,
+    ).toBe(true);
   });
   it('rejects non-uuid ids', () => {
-    expect(holdSlotSchema.safeParse({ ...base, doctorId: '1 OR 1=1', startsAt: '2026-06-10T09:00:00Z' }).success).toBe(false);
+    expect(
+      holdSlotSchema.safeParse({ ...base, doctorId: '1 OR 1=1', startsAt: '2026-06-10T09:00:00Z' })
+        .success,
+    ).toBe(false);
   });
 });
 
 describe('waitlist range', () => {
   const b = { doctorId: uuid, serviceId: uuid };
   it('rejects reversed and too long ranges', () => {
-    expect(joinWaitlistSchema.safeParse({ ...b, fromDate: '2026-06-10', toDate: '2026-06-09' }).success).toBe(false);
-    expect(joinWaitlistSchema.safeParse({ ...b, fromDate: '2026-06-01', toDate: '2026-09-01' }).success).toBe(false);
-    expect(joinWaitlistSchema.safeParse({ ...b, fromDate: '2026-06-01', toDate: '2026-06-10' }).success).toBe(true);
+    expect(
+      joinWaitlistSchema.safeParse({ ...b, fromDate: '2026-06-10', toDate: '2026-06-09' }).success,
+    ).toBe(false);
+    expect(
+      joinWaitlistSchema.safeParse({ ...b, fromDate: '2026-06-01', toDate: '2026-09-01' }).success,
+    ).toBe(false);
+    expect(
+      joinWaitlistSchema.safeParse({ ...b, fromDate: '2026-06-01', toDate: '2026-06-10' }).success,
+    ).toBe(true);
   });
 });
 
 describe('schedule template', () => {
   const t = { doctorId: uuid, clinicId: uuid, weekday: 1, startLocal: '09:00', endLocal: '17:00' };
   it('accepts a normal template', () => {
-    expect(scheduleTemplateSchema.safeParse({ ...t, breakStartLocal: '13:00', breakEndLocal: '14:00' }).success).toBe(true);
+    expect(
+      scheduleTemplateSchema.safeParse({ ...t, breakStartLocal: '13:00', breakEndLocal: '14:00' })
+        .success,
+    ).toBe(true);
   });
   it('rejects break outside hours, half a break, misaligned times, bad weekday', () => {
-    expect(scheduleTemplateSchema.safeParse({ ...t, breakStartLocal: '08:00', breakEndLocal: '09:00' }).success).toBe(false);
-    expect(scheduleTemplateSchema.safeParse({ ...t, breakStartLocal: '13:00' }).success).toBe(false);
+    expect(
+      scheduleTemplateSchema.safeParse({ ...t, breakStartLocal: '08:00', breakEndLocal: '09:00' })
+        .success,
+    ).toBe(false);
+    expect(scheduleTemplateSchema.safeParse({ ...t, breakStartLocal: '13:00' }).success).toBe(
+      false,
+    );
     expect(scheduleTemplateSchema.safeParse({ ...t, startLocal: '09:07' }).success).toBe(false);
     expect(scheduleTemplateSchema.safeParse({ ...t, weekday: 8 }).success).toBe(false);
     expect(scheduleTemplateSchema.safeParse({ ...t, startLocal: '18:00' }).success).toBe(false);
@@ -92,44 +130,91 @@ describe('phone', () => {
 
 describe('signUp', () => {
   it('normalizes email, rejects weak password', () => {
-    const ok = signUpSchema.safeParse({ email: '  USER@Example.COM ', password: 'longenoughpass', fullName: 'Іван Петренко', phone: '+380501234567' });
+    const ok = signUpSchema.safeParse({
+      email: '  USER@Example.COM ',
+      password: 'longenoughpass',
+      fullName: 'Іван Петренко',
+      phone: '+380501234567',
+    });
     expect(ok.success && ok.data.email).toBe('user@example.com');
-    expect(signUpSchema.safeParse({ email: 'a@b.co', password: 'short', fullName: 'Іван', phone: '+380501234567' }).success).toBe(false);
+    expect(
+      signUpSchema.safeParse({
+        email: 'a@b.co',
+        password: 'short',
+        fullName: 'Іван',
+        phone: '+380501234567',
+      }).success,
+    ).toBe(false);
   });
   it('caps password length (argon2 DoS guard)', () => {
-    expect(signUpSchema.safeParse({ email: 'a@b.co', password: 'x'.repeat(100_000), fullName: 'Іван', phone: '+380501234567' }).success).toBe(false);
+    expect(
+      signUpSchema.safeParse({
+        email: 'a@b.co',
+        password: 'x'.repeat(100_000),
+        fullName: 'Іван',
+        phone: '+380501234567',
+      }).success,
+    ).toBe(false);
   });
 });
 
 describe('report period', () => {
   it('limits the span', () => {
-    expect(reportPeriodSchema.safeParse({ from: '2026-01-01', to: '2026-03-31' }).success).toBe(true);
-    expect(reportPeriodSchema.safeParse({ from: '2020-01-01', to: '2026-03-31' }).success).toBe(false);
+    expect(reportPeriodSchema.safeParse({ from: '2026-01-01', to: '2026-03-31' }).success).toBe(
+      true,
+    );
+    expect(reportPeriodSchema.safeParse({ from: '2020-01-01', to: '2026-03-31' }).success).toBe(
+      false,
+    );
   });
 });
 
 describe('input the database cannot store is a validation error, never a 500', () => {
   const base = { email: 'a@b.io', password: 'a-long-enough-pass', phone: '+380501234567' };
   it('control characters and lone surrogates are refused in names', () => {
-    for (const bad of ['a\u0000b', '\u0000\u0000', 'x\u0001y', 'bad\ud800name', 'tab\there', 'line\nbreak', '\u0085nel', '\u007fdel']) {
-      expect(signUpSchema.safeParse({ ...base, fullName: bad }).success, JSON.stringify(bad)).toBe(false);
+    for (const bad of [
+      'a\u0000b',
+      '\u0000\u0000',
+      'x\u0001y',
+      'bad\ud800name',
+      'tab\there',
+      'line\nbreak',
+      '\u0085nel',
+      '\u007fdel',
+    ]) {
+      expect(signUpSchema.safeParse({ ...base, fullName: bad }).success, JSON.stringify(bad)).toBe(
+        false,
+      );
     }
-    expect(signUpSchema.safeParse({ ...base, fullName: 'Олена Коваленко-Шевченко' }).success).toBe(true);
+    expect(signUpSchema.safeParse({ ...base, fullName: 'Олена Коваленко-Шевченко' }).success).toBe(
+      true,
+    );
     expect(signUpSchema.safeParse({ ...base, fullName: 'Zoë 😀 Nowak' }).success).toBe(true);
   });
   it('calendar dates outside 2000..2100 are refused, the edges are accepted', () => {
-    for (const bad of ['0000-01-01', '9999-12-31', '0001-01-01', '1999-12-31', '2101-01-01', '2026-02-30']) {
+    for (const bad of [
+      '0000-01-01',
+      '9999-12-31',
+      '0001-01-01',
+      '1999-12-31',
+      '2101-01-01',
+      '2026-02-30',
+    ]) {
       expect(localDateSchema.safeParse(bad).success, bad).toBe(false);
     }
-    for (const ok of ['2000-01-01', '2026-02-28', '2100-12-31']) expect(localDateSchema.safeParse(ok).success, ok).toBe(true);
+    for (const ok of ['2000-01-01', '2026-02-28', '2100-12-31'])
+      expect(localDateSchema.safeParse(ok).success, ok).toBe(true);
   });
   it('instants outside 2000..2100 are refused', () => {
     const q = { clinicId: uuid, doctorId: uuid, serviceId: uuid };
-    for (const bad of ['0000-01-01T00:00:00Z', '9999-12-31T23:45:00Z', '1999-12-31T23:45:00Z']) expect(holdSlotSchema.safeParse({ ...q, startsAt: bad }).success, bad).toBe(false);
+    for (const bad of ['0000-01-01T00:00:00Z', '9999-12-31T23:45:00Z', '1999-12-31T23:45:00Z'])
+      expect(holdSlotSchema.safeParse({ ...q, startsAt: bad }).success, bad).toBe(false);
     expect(holdSlotSchema.safeParse({ ...q, startsAt: '2026-06-01T09:00:00Z' }).success).toBe(true);
   });
   it('cancel reasons may contain newlines but not NUL', () => {
-    expect(cancelSchema.safeParse({ appointmentId: uuid, reason: 'line1\nline2' }).success).toBe(true);
+    expect(cancelSchema.safeParse({ appointmentId: uuid, reason: 'line1\nline2' }).success).toBe(
+      true,
+    );
     expect(cancelSchema.safeParse({ appointmentId: uuid, reason: 'a\u0000b' }).success).toBe(false);
   });
   it('hasForbiddenText flags exactly the unsafe strings', () => {

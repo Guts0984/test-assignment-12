@@ -87,7 +87,11 @@ export const loadAvailabilityInputs = async (
     specialty: str(r['specialty']),
   }));
   const clinic = clinicRow
-    ? { id: str(clinicRow['id']), timeZone: str(clinicRow['time_zone']), currency: str(clinicRow['currency']) as 'UAH' | 'PLN' }
+    ? {
+        id: str(clinicRow['id']),
+        timeZone: str(clinicRow['time_zone']),
+        currency: str(clinicRow['currency']) as 'UAH' | 'PLN',
+      }
     : null;
   const service = serviceRow
     ? {
@@ -98,10 +102,21 @@ export const loadAvailabilityInputs = async (
       }
     : null;
   if (!clinic || !service || doctors.length === 0) {
-    return { clinic, service, doctors, templates: [], exceptions: [], doctorBusy: [], roomBusy: [] };
+    return {
+      clinic,
+      service,
+      doctors,
+      templates: [],
+      exceptions: [],
+      doctorBusy: [],
+      roomBusy: [],
+    };
   }
 
-  const ids = sql.join(doctors.map((d) => sql`${d.id}::uuid`), sql`, `);
+  const ids = sql.join(
+    doctors.map((d) => sql`${d.id}::uuid`),
+    sql`, `,
+  );
   const busyFilter = sql`
     status <> 'cancelled'
     AND NOT (status = 'held' AND kind = 'regular' AND hold_expires_at <= ${p.now.toISOString()}::timestamptz)

@@ -28,7 +28,9 @@ export type WorkerEnv = z.infer<typeof schema>;
 export const loadWorkerEnv = (source: NodeJS.ProcessEnv = process.env): WorkerEnv => {
   const r = schema.safeParse(source);
   if (!r.success) {
-    throw new Error(`Invalid environment: ${r.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')}`);
+    throw new Error(
+      `Invalid environment: ${r.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')}`,
+    );
   }
   return r.data;
 };

@@ -10,6 +10,9 @@ import { RESOLVERS } from './module.js';
 const app = await NestFactory.create(GraphQLSchemaBuilderModule, { logger: false });
 await app.init();
 const schema = await app.get(GraphQLSchemaFactory).create(RESOLVERS as never);
-writeFileSync(new URL('../schema.gql', import.meta.url), printSchema(lexicographicSortSchema(schema)) + '\n');
+writeFileSync(
+  new URL('../schema.gql', import.meta.url),
+  printSchema(lexicographicSortSchema(schema)) + '\n',
+);
 await app.close();
 console.log('schema.gql written');

@@ -5,10 +5,19 @@ import pl from '../../../messages/pl.json';
 import { formatAppointmentsCount, formatMoney } from '@clinic/shared';
 
 const flat = (o: Record<string, unknown>, prefix = ''): Record<string, string> =>
-  Object.fromEntries(Object.entries(o).flatMap(([k, v]) => (typeof v === 'object' && v ? Object.entries(flat(v as Record<string, unknown>, `${prefix}${k}.`)) : [[`${prefix}${k}`, String(v)]])));
+  Object.fromEntries(
+    Object.entries(o).flatMap(([k, v]) =>
+      typeof v === 'object' && v
+        ? Object.entries(flat(v as Record<string, unknown>, `${prefix}${k}.`))
+        : [[`${prefix}${k}`, String(v)]],
+    ),
+  );
 
-const U = flat(uk); const E = flat(en); const P = flat(pl);
-const params = (s: string): string[] => [...s.matchAll(/\{(\w+)\s*[,}]/g)].map((m) => m[1] as string).sort();
+const U = flat(uk);
+const E = flat(en);
+const P = flat(pl);
+const params = (s: string): string[] =>
+  [...s.matchAll(/\{(\w+)\s*[,}]/g)].map((m) => m[1] as string).sort();
 
 describe('translations', () => {
   it('every key exists in all three languages', () => {
@@ -23,11 +32,20 @@ describe('translations', () => {
     }
   });
   it('every API error code has a message in every language', () => {
-    for (const code of ['SLOT_TAKEN', 'HOLD_EXPIRED', 'FUTURE_LIMIT_REACHED', 'RATE_LIMITED', 'INTERNAL_SERVER_ERROR', 'ONLINE_BOOKING_BLOCKED', 'OFFER_EXPIRED', 'network']) {
+    for (const code of [
+      'SLOT_TAKEN',
+      'HOLD_EXPIRED',
+      'FUTURE_LIMIT_REACHED',
+      'RATE_LIMITED',
+      'INTERNAL_SERVER_ERROR',
+      'ONLINE_BOOKING_BLOCKED',
+      'OFFER_EXPIRED',
+      'network',
+    ]) {
       for (const L of [U, E, P]) expect(L[`errors.${code}`], code).toBeTruthy();
     }
   });
-  it('plural messages use each language\'s categories (uk/pl have few and many)', () => {
+  it("plural messages use each language's categories (uk/pl have few and many)", () => {
     expect(U['cabinet.count']).toMatch(/few.*many/);
     expect(P['cabinet.count']).toMatch(/few.*many/);
     expect(E['cabinet.count']).not.toMatch(/few/);

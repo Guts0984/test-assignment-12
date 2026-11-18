@@ -17,7 +17,11 @@ export type EventBus = {
  * subscription resolvers, which filter per subscriber. Losing Redis loses live updates only:
  * clients refetch when they reconnect.
  */
-export const createEventBus = (publisher: Redis, subscriberFactory: () => Redis, onError: (m: string) => void): EventBus => {
+export const createEventBus = (
+  publisher: Redis,
+  subscriberFactory: () => Redis,
+  onError: (m: string) => void,
+): EventBus => {
   const pubsub = new PubSub();
   let sub: Redis | undefined;
   return {
@@ -37,7 +41,9 @@ export const createEventBus = (publisher: Redis, subscriberFactory: () => Redis,
         if (e) void pubsub.publish(TOPIC, e);
       });
       // subscribe() is retried by ioredis on reconnect (autoResubscribe)
-      await sub.subscribe(EVENTS_CHANNEL).catch((err) => onError(`event subscribe failed: ${String(err)}`));
+      await sub
+        .subscribe(EVENTS_CHANNEL)
+        .catch((err) => onError(`event subscribe failed: ${String(err)}`));
     },
     stop: async () => {
       sub?.disconnect();

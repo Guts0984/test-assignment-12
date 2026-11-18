@@ -1,10 +1,21 @@
-import { Client, cacheExchange, fetchExchange, subscriptionExchange, type CombinedError } from 'urql';
+import {
+  Client,
+  cacheExchange,
+  fetchExchange,
+  subscriptionExchange,
+  type CombinedError,
+} from 'urql';
 import { createClient as createWsClient } from 'graphql-ws';
 import { env, resolveWsUrl } from '../config';
 
 /** One urql client per browser tab: cookies on every request, subscriptions over graphql-ws. */
 export const createApiClient = (): Client => {
-  const ws = createWsClient({ url: resolveWsUrl, lazy: true, retryAttempts: Infinity, shouldRetry: () => true });
+  const ws = createWsClient({
+    url: resolveWsUrl,
+    lazy: true,
+    retryAttempts: Infinity,
+    shouldRetry: () => true,
+  });
   return new Client({
     url: env.apiUrl,
     // POST only: the API refuses simple GET queries (CSRF prevention)
@@ -16,7 +27,13 @@ export const createApiClient = (): Client => {
       subscriptionExchange({
         forwardSubscription: (request) => ({
           subscribe: (sink) => ({
-            unsubscribe: ws.subscribe({ query: request.query ?? '', variables: request.variables as Record<string, unknown> | undefined }, sink as never),
+            unsubscribe: ws.subscribe(
+              {
+                query: request.query ?? '',
+                variables: request.variables as Record<string, unknown> | undefined,
+              },
+              sink as never,
+            ),
           }),
         }),
       }),
@@ -39,4 +56,4 @@ export const errorCode = (e: CombinedError | undefined): string | null => {
 };
 
 export const fieldErrorsOf = (e: CombinedError | undefined): Record<string, string> =>
-  ((e?.graphQLErrors[0]?.extensions as Extensions | undefined)?.fieldErrors) ?? {};
+  (e?.graphQLErrors[0]?.extensions as Extensions | undefined)?.fieldErrors ?? {};

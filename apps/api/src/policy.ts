@@ -25,10 +25,14 @@ export const canReadAppointment = (a: Actor | null, v: Visit): boolean => {
 
 /** Contact details of a patient: the patient themself and the registrar of the visit's clinic. */
 export const canReadPatientContacts = (a: Actor | null, v: Visit): boolean =>
-  !!a && ((a.role === 'patient' && a.patientId === v.patientId) || (a.role === 'registrar' && !!a.clinicId && a.clinicId === v.clinicId));
+  !!a &&
+  ((a.role === 'patient' && a.patientId === v.patientId) ||
+    (a.role === 'registrar' && !!a.clinicId && a.clinicId === v.clinicId));
 
 /** Name of the patient on a visit: additionally the visit's own doctor (not other doctors). */
 export const canReadPatientName = (a: Actor | null, v: Visit): boolean =>
-  canReadPatientContacts(a, v) || (!!a && a.role === 'doctor' && !!a.doctorId && a.doctorId === v.doctorId);
+  canReadPatientContacts(a, v) ||
+  (!!a && a.role === 'doctor' && !!a.doctorId && a.doctorId === v.doctorId);
 
-export const isRole = (a: Actor | null, ...roles: Actor['role'][]): boolean => !!a && roles.includes(a.role);
+export const isRole = (a: Actor | null, ...roles: Actor['role'][]): boolean =>
+  !!a && roles.includes(a.role);

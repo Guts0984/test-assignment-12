@@ -46,14 +46,25 @@ const publishSafe = async (deps: WorkerDeps, e: ClinicEvent): Promise<void> => {
 };
 
 /** After a time changed hands on the waiting list, tell whoever now holds the offer (live update). */
-const publishOffersAt = async (deps: WorkerDeps, client: Client, doctorId: string, startsAt: Date): Promise<void> => {
+const publishOffersAt = async (
+  deps: WorkerDeps,
+  client: Client,
+  doctorId: string,
+  startsAt: Date,
+): Promise<void> => {
   const r = await client.query(
     `SELECT a.id, a.patient_id, a.clinic_id, a.doctor_id FROM waitlist_offers o JOIN appointments a ON a.id = o.appointment_id
      WHERE a.doctor_id = $1 AND a.starts_at = $2 AND o.status = 'pending'`,
     [doctorId, startsAt],
   );
   for (const x of r.rows as Record<string, string>[])
-    await publishSafe(deps, { type: 'appointment', appointmentId: String(x['id']), patientId: String(x['patient_id']), clinicId: String(x['clinic_id']), doctorId: String(x['doctor_id']) });
+    await publishSafe(deps, {
+      type: 'appointment',
+      appointmentId: String(x['id']),
+      patientId: String(x['patient_id']),
+      clinicId: String(x['clinic_id']),
+      doctorId: String(x['doctor_id']),
+    });
 };
 
 const sendKind = async (
@@ -73,7 +84,11 @@ const sendKind = async (
     // in-app reminder, written in the same transaction as the "done" mark
     await client.query(
       `INSERT INTO notifications (user_id, kind, payload) VALUES ($1, $2, $3::jsonb)`,
-      [view.patientUserId, `reminder_${kind.hours}h`, JSON.stringify({ appointmentId, version: view.version })],
+      [
+        view.patientUserId,
+        `reminder_${kind.hours}h`,
+        JSON.stringify({ appointmentId, version: view.version }),
+      ],
     );
   }
   if (isSendableEmail(view.patientEmail)) {
@@ -86,7 +101,11 @@ const sendKind = async (
   return 'done';
 };
 
-const runHandler = async (deps: WorkerDeps, client: Client, task: TaskRow): Promise<TaskOutcome> => {
+const runHandler = async (
+  deps: WorkerDeps,
+  client: Client,
+  task: TaskRow,
+): Promise<TaskOutcome> => {
   const p = task.payload;
   switch (task.kind) {
     case 'hold.expire': {
@@ -98,8 +117,21 @@ const runHandler = async (deps: WorkerDeps, client: Client, task: TaskRow): Prom
         // not released: either already gone (fine) or not due by the domain clock (retry later)
         return before?.status === 'held' ? 'not_due' : 'stale';
       }
-      if (before) await publishSafe(deps, { type: 'availability', clinicId: before.clinicId, doctorId: before.doctorId, localDate: before.localDate });
-      if (before) await publishSafe(deps, { type: 'appointment', appointmentId: before.id, patientId: before.patientId, clinicId: before.clinicId, doctorId: before.doctorId });
+      if (before)
+        await publishSafe(deps, {
+          type: 'availability',
+          clinicId: before.clinicId,
+          doctorId: before.doctorId,
+          localDate: before.localDate,
+        });
+      if (before)
+        await publishSafe(deps, {
+          type: 'appointment',
+          appointmentId: before.id,
+          patientId: before.patientId,
+          clinicId: before.clinicId,
+          doctorId: before.doctorId,
+        });
       if (before) await publishOffersAt(deps, client, before.doctorId, before.startsAt);
       return 'done';
     }
@@ -111,9 +143,20 @@ const runHandler = async (deps: WorkerDeps, client: Client, task: TaskRow): Prom
       if (r.value.outcome === 'not_due') return 'not_due';
       if (r.value.outcome === 'not_pending') return 'stale';
       if (before) {
-        await publishSafe(deps, { type: 'availability', clinicId: before.clinicId, doctorId: before.doctorId, localDate: before.localDate });
+        await publishSafe(deps, {
+          type: 'availability',
+          clinicId: before.clinicId,
+          doctorId: before.doctorId,
+          localDate: before.localDate,
+        });
         await publishSafe(deps, { type: 'offer', offerId, patientId: before.patientId });
-        await publishSafe(deps, { type: 'appointment', appointmentId: before.id, patientId: before.patientId, clinicId: before.clinicId, doctorId: before.doctorId });
+        await publishSafe(deps, {
+          type: 'appointment',
+          appointmentId: before.id,
+          patientId: before.patientId,
+          clinicId: before.clinicId,
+          doctorId: before.doctorId,
+        });
         await publishOffersAt(deps, client, before.doctorId, before.startsAt);
       }
       return 'done';
@@ -122,17 +165,50 @@ const runHandler = async (deps: WorkerDeps, client: Client, task: TaskRow): Prom
     case 'reminder.2h': {
       const hours = task.kind === 'reminder.24h' ? 24 : 2;
       const version = Number(p['version']);
-      return sendKind(deps, client, task, str(p['appointmentId']), { kind: 'reminder', hours }, (s) => s === 'booked', Number.isFinite(version) ? version : undefined);
+      return sendKind(
+        deps,
+        client,
+        task,
+        str(p['appointmentId']),
+        { kind: 'reminder', hours },
+        (s) => s === 'booked',
+        Number.isFinite(version) ? version : undefined,
+      );
     }
     case 'email.booking_confirmed':
-      return sendKind(deps, client, task, str(p['appointmentId']), { kind: 'booking_confirmed' }, (s) => s === 'booked' || s === 'checked_in' || s === 'completed');
+      return sendKind(
+        deps,
+        client,
+        task,
+        str(p['appointmentId']),
+        { kind: 'booking_confirmed' },
+        (s) => s === 'booked' || s === 'checked_in' || s === 'completed',
+      );
     case 'email.cancelled':
-      return sendKind(deps, client, task, str(p['appointmentId']), { kind: 'cancelled' }, (s) => s === 'cancelled');
+      return sendKind(
+        deps,
+        client,
+        task,
+        str(p['appointmentId']),
+        { kind: 'cancelled' },
+        (s) => s === 'cancelled',
+      );
     case 'email.sick_cancel':
-      return sendKind(deps, client, task, str(p['appointmentId']), { kind: 'sick_cancel' }, (s) => s === 'cancelled');
+      return sendKind(
+        deps,
+        client,
+        task,
+        str(p['appointmentId']),
+        { kind: 'sick_cancel' },
+        (s) => s === 'cancelled',
+      );
     case 'email.waitlist_offer': {
       const view = await loadAppointmentView(client, str(p['appointmentId']));
-      const offer = (await client.query('SELECT status, expires_at FROM waitlist_offers WHERE id = $1', [str(p['offerId'])])).rows[0];
+      const offer = (
+        await client.query('SELECT status, expires_at FROM waitlist_offers WHERE id = $1', [
+          str(p['offerId']),
+        ])
+      ).rows[0];
       if (!view || !offer || offer['status'] !== 'pending') return 'stale';
       // A sick-day mark may be cancelling this very slot right now. It skips tasks a worker already
       // holds, so the check lives here: never announce a time on a day the doctor is off.
@@ -141,7 +217,14 @@ const runHandler = async (deps: WorkerDeps, client: Client, task: TaskRow): Prom
         [view.doctorId, view.localDate],
       );
       if (off.rows.length > 0) return 'stale';
-      return sendKind(deps, client, task, str(p['appointmentId']), { kind: 'waitlist_offer', expiresAt: new Date(offer['expires_at'] as string | Date) }, (s) => s === 'held');
+      return sendKind(
+        deps,
+        client,
+        task,
+        str(p['appointmentId']),
+        { kind: 'waitlist_offer', expiresAt: new Date(offer['expires_at'] as string | Date) },
+        (s) => s === 'held',
+      );
     }
     default:
       throw new Error(`unknown task kind ${task.kind}`);
@@ -179,7 +262,12 @@ export const processTask = async (deps: WorkerDeps, taskId: string): Promise<Tas
       if (outcome === 'done' || outcome === 'stale') {
         await client.query(
           `UPDATE scheduled_tasks SET status = $2::task_status, done_at = $3, last_error = $4 WHERE id = $1`,
-          [task.id, outcome === 'done' ? 'done' : 'cancelled', deps.now(), outcome === 'stale' ? 'stale: appointment changed' : null],
+          [
+            task.id,
+            outcome === 'done' ? 'done' : 'cancelled',
+            deps.now(),
+            outcome === 'stale' ? 'stale: appointment changed' : null,
+          ],
         );
         await client.query('COMMIT');
       } else {
@@ -189,7 +277,10 @@ export const processTask = async (deps: WorkerDeps, taskId: string): Promise<Tas
     } catch (e) {
       await client.query('ROLLBACK').catch(() => undefined);
       await deps.pool
-        .query(`UPDATE scheduled_tasks SET attempts = attempts + 1, last_error = $2 WHERE id = $1 AND status = 'pending'`, [task.id, String(e).slice(0, 500)])
+        .query(
+          `UPDATE scheduled_tasks SET attempts = attempts + 1, last_error = $2 WHERE id = $1 AND status = 'pending'`,
+          [task.id, String(e).slice(0, 500)],
+        )
         .catch(() => undefined);
       throw e;
     }
@@ -198,5 +289,7 @@ export const processTask = async (deps: WorkerDeps, taskId: string): Promise<Tas
   }
 };
 
-export const publishToRedis = (redis: { publish: (c: string, m: string) => Promise<unknown> }) => (e: ClinicEvent): Promise<void> =>
-  redis.publish(EVENTS_CHANNEL, encodeEvent(e)).then(() => undefined);
+export const publishToRedis =
+  (redis: { publish: (c: string, m: string) => Promise<unknown> }) =>
+  (e: ClinicEvent): Promise<void> =>
+    redis.publish(EVENTS_CHANNEL, encodeEvent(e)).then(() => undefined);

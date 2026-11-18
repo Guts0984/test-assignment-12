@@ -6,5 +6,10 @@ import { SignUpForm } from '@/features/auth';
 
 export const SignUpPage = () => {
   const t = useTranslations('auth');
-  return (<><PageTitle>{t('signUpTitle')}</PageTitle><SignUpForm /></>);
+  return (
+    <>
+      <PageTitle>{t('signUpTitle')}</PageTitle>
+      <SignUpForm />
+    </>
+  );
 };

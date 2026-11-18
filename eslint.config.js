@@ -6,7 +6,16 @@ import globals from 'globals';
 const NEST_APPS = ['apps/api/**', 'apps/worker/**'];
 
 export default tseslint.config(
-  { ignores: ['**/next-env.d.ts', '**/dist/**', '**/.next/**', '**/node_modules/**', '**/generated/**', '**/coverage/**'] },
+  {
+    ignores: [
+      '**/next-env.d.ts',
+      '**/dist/**',
+      '**/.next/**',
+      '**/node_modules/**',
+      '**/generated/**',
+      '**/coverage/**',
+    ],
+  },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
@@ -15,13 +24,27 @@ export default tseslint.config(
       '@typescript-eslint/no-explicit-any': 'error',
       '@typescript-eslint/ban-ts-comment': [
         'error',
-        { 'ts-ignore': 'allow-with-description', 'ts-expect-error': 'allow-with-description', minimumDescriptionLength: 10 },
+        {
+          'ts-ignore': 'allow-with-description',
+          'ts-expect-error': 'allow-with-description',
+          minimumDescriptionLength: 10,
+        },
       ],
-      '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        { argsIgnorePattern: '^_', varsIgnorePattern: '^_' },
+      ],
       'no-restricted-syntax': [
         'error',
-        { selector: 'ClassDeclaration', message: 'Functional style only: classes are allowed just for NestJS (apps/api, apps/worker).' },
-        { selector: 'ClassExpression', message: 'Functional style only: classes are allowed just for NestJS.' },
+        {
+          selector: 'ClassDeclaration',
+          message:
+            'Functional style only: classes are allowed just for NestJS (apps/api, apps/worker).',
+        },
+        {
+          selector: 'ClassExpression',
+          message: 'Functional style only: classes are allowed just for NestJS.',
+        },
       ],
     },
   },

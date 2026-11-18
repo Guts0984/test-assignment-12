@@ -4,8 +4,30 @@ import { sql } from 'drizzle-orm';
 import { inject } from 'vitest';
 import { cancelAppointment, rescheduleAppointment } from '@clinic/domain';
 import {
-  clearMails, createTestDb, flushRedis, insertTask, listMails, makeCtx, makeWorld, must, redisClient, restartRedis, rows, sleep, startWorker, taskRow,
-  uniqueQueue, waitForMails, workerEnv, at, dockerRun, mailBody, type RunningWorker, type TestDb, type World, count,
+  clearMails,
+  createTestDb,
+  flushRedis,
+  insertTask,
+  listMails,
+  makeCtx,
+  makeWorld,
+  must,
+  redisClient,
+  restartRedis,
+  rows,
+  sleep,
+  startWorker,
+  taskRow,
+  uniqueQueue,
+  waitForMails,
+  workerEnv,
+  at,
+  dockerRun,
+  mailBody,
+  type RunningWorker,
+  type TestDb,
+  type World,
+  count,
 } from './helpers.js';
 import { bookReal, futureWorkday, realClock } from './support.js';
 
@@ -27,7 +49,9 @@ beforeEach(async () => {
   queue = uniqueQueue();
   await t.db.execute(sql`DELETE FROM scheduled_tasks`);
   // earlier tests deliberately corrupt some patients (no email, hostile name): restore them
-  await t.db.execute(sql`UPDATE patients p SET email = u.email, full_name = 'Patient' FROM users u WHERE u.id = p.user_id`);
+  await t.db.execute(
+    sql`UPDATE patients p SET email = u.email, full_name = 'Patient' FROM users u WHERE u.id = p.user_id`,
+  );
 });
 afterEach(async () => {
   await Promise.all(running.map((r) => r.close()));
@@ -42,7 +66,11 @@ const spawn = async (over: Record<string, string> = {}, q = queue): Promise<Runn
 const inMs = (ms: number): Date => new Date(Date.now() + ms);
 
 const reminder = (appointmentId: string, version: number, ms: number, hours: 24 | 2 = 2) =>
-  insertTask(t.db, { kind: `reminder.${hours}h`, runAt: inMs(ms), payload: { appointmentId, version, hours } });
+  insertTask(t.db, {
+    kind: `reminder.${hours}h`,
+    runAt: inMs(ms),
+    payload: { appointmentId, version, hours },
+  });
 
 describe('a due task becomes exactly one email, on time', () => {
   it('reminder: nothing before the time, one email after, task done, in-app notification written', async () => {
@@ -60,15 +88,32 @@ describe('a due task becomes exactly one email, on time', () => {
     await sleep(1500);
     expect(await listMails()).toHaveLength(1); // and never again
     expect((await taskRow(t.db, id)).status).toBe('done');
-    expect(await count(t.db, sql`SELECT count(*)::int AS n FROM notifications WHERE kind = 'reminder_2h' AND payload->>'appointmentId' = ${a.id}`)).toBe(1);
+    expect(
+      await count(
+        t.db,
+        sql`SELECT count(*)::int AS n FROM notifications WHERE kind = 'reminder_2h' AND payload->>'appointmentId' = ${a.id}`,
+      ),
+    ).toBe(1);
   });
 
   it('after a reschedule only the new time is reminded; after a cancel nothing is', async () => {
     const a = await bookReal(ctx(), w, 1, 1, 1, '10:00', 'k-b1');
-    const moved = must(await rescheduleAppointment(ctx(), (w.patients[1] as World['patients'][number]).actor, { appointmentId: a.id, newStartsAt: at(futureWorkday(2), '11:00') }));
+    const moved = must(
+      await rescheduleAppointment(ctx(), (w.patients[1] as World['patients'][number]).actor, {
+        appointmentId: a.id,
+        newStartsAt: at(futureWorkday(2), '11:00'),
+      }),
+    );
     // pull the (new) reminders into the next few seconds
-    await t.db.execute(sql`UPDATE scheduled_tasks SET run_at = now() + interval '1 second' WHERE status = 'pending' AND kind LIKE 'reminder.%' AND payload->>'appointmentId' = ${a.id}`);
-    expect(await count(t.db, sql`SELECT count(*)::int AS n FROM scheduled_tasks WHERE status = 'cancelled' AND kind LIKE 'reminder.%' AND payload->>'appointmentId' = ${a.id}`)).toBe(2);
+    await t.db.execute(
+      sql`UPDATE scheduled_tasks SET run_at = now() + interval '1 second' WHERE status = 'pending' AND kind LIKE 'reminder.%' AND payload->>'appointmentId' = ${a.id}`,
+    );
+    expect(
+      await count(
+        t.db,
+        sql`SELECT count(*)::int AS n FROM scheduled_tasks WHERE status = 'cancelled' AND kind LIKE 'reminder.%' AND payload->>'appointmentId' = ${a.id}`,
+      ),
+    ).toBe(2);
     // a stale task of the old version that somehow survived must still not fire
     const stale = await reminder(a.id, 1, 1000, 24);
     await spawn();
@@ -79,15 +124,26 @@ describe('a due task becomes exactly one email, on time', () => {
     for (const m of all) expect(m.Subject).toContain('11:00');
     expect(all.some((m) => m.Subject.includes('10:00'))).toBe(false);
     expect((await taskRow(t.db, stale)).status).toBe('cancelled');
-    void mails; void moved;
+    void mails;
+    void moved;
 
     await clearMails();
     const b = await bookReal(ctx(), w, 2, 2, 3, '10:00', 'k-b2');
-    must(await cancelAppointment(ctx(), (w.patients[2] as World['patients'][number]).actor, { appointmentId: b.id }));
-    await t.db.execute(sql`UPDATE scheduled_tasks SET run_at = now() + interval '1 second' WHERE kind LIKE 'reminder.%' AND payload->>'appointmentId' = ${b.id}`);
+    must(
+      await cancelAppointment(ctx(), (w.patients[2] as World['patients'][number]).actor, {
+        appointmentId: b.id,
+      }),
+    );
+    await t.db.execute(
+      sql`UPDATE scheduled_tasks SET run_at = now() + interval '1 second' WHERE kind LIKE 'reminder.%' AND payload->>'appointmentId' = ${b.id}`,
+    );
     const late = await reminder(b.id, b.version, 1000);
     await sleep(3500);
-    expect((await listMails()).filter((m) => m.To[0]?.Address === 'p2@t.io' && m.Subject.includes('Нагадування'))).toHaveLength(0);
+    expect(
+      (await listMails()).filter(
+        (m) => m.To[0]?.Address === 'p2@t.io' && m.Subject.includes('Нагадування'),
+      ),
+    ).toHaveLength(0);
     expect((await taskRow(t.db, late)).status).toBe('cancelled');
   });
 
@@ -103,7 +159,9 @@ describe('a due task becomes exactly one email, on time', () => {
 
   it('hostile patient data cannot inject headers or markup', async () => {
     const a = await bookReal(ctx(), w, 4, 4, 5, '10:00', 'k-d1');
-    await t.db.execute(sql`UPDATE patients SET full_name = ${'Eve <script>alert(1)</script>\r\nBcc: victim@evil.io'} WHERE id = ${a.patientId}::uuid`);
+    await t.db.execute(
+      sql`UPDATE patients SET full_name = ${'Eve <script>alert(1)</script>\r\nBcc: victim@evil.io'} WHERE id = ${a.patientId}::uuid`,
+    );
     await reminder(a.id, a.version, 300);
     await spawn();
     const [m] = await waitForMails(1, 8000);
@@ -114,7 +172,9 @@ describe('a due task becomes exactly one email, on time', () => {
     expect((m?.To ?? []).map((x) => x.Address)).toEqual(['p4@t.io']);
     // an address that could smuggle recipients is simply not mailed
     await clearMails();
-    await t.db.execute(sql`UPDATE patients SET email = ${'a@b.io>\r\nBcc: victim@evil.io'} WHERE id = ${a.patientId}::uuid`);
+    await t.db.execute(
+      sql`UPDATE patients SET email = ${'a@b.io>\r\nBcc: victim@evil.io'} WHERE id = ${a.patientId}::uuid`,
+    );
     const id2 = await reminder(a.id, a.version, 300);
     await sleep(2500);
     expect(await listMails()).toHaveLength(0);
@@ -180,16 +240,41 @@ describe('several workers (invariant 10, acceptance 11)', () => {
   it('3 workers, 36 tasks, plus duplicate jobs injected by hand: every email exactly once', async () => {
     const ids: string[] = [];
     for (let i = 0; i < 36; i++) {
-      const a = await bookReal(ctx(), w, i, i % 6, 14 + Math.floor(i / 6), ['09:00', '10:00', '11:00', '12:00', '14:00', '15:00'][i % 6] as string, `k-m${i}`);
+      const a = await bookReal(
+        ctx(),
+        w,
+        i,
+        i % 6,
+        14 + Math.floor(i / 6),
+        ['09:00', '10:00', '11:00', '12:00', '14:00', '15:00'][i % 6] as string,
+        `k-m${i}`,
+      );
       ids.push(await reminder(a.id, a.version, 1500 + (i % 6) * 200, i % 2 === 0 ? 2 : 24));
     }
     await Promise.all([spawn(), spawn(), spawn()]);
-    const q = new Queue(queue, { connection: { host: new URL(inject('redisUrl')).hostname, port: Number(new URL(inject('redisUrl')).port) } });
+    const q = new Queue(queue, {
+      connection: {
+        host: new URL(inject('redisUrl')).hostname,
+        port: Number(new URL(inject('redisUrl')).port),
+      },
+    });
     // poison the queue with duplicates: the same task id under other job ids, many times
-    for (const id of ids.slice(0, 12)) for (let d = 0; d < 5; d++) await q.add('reminder.2h', { taskId: id }, { jobId: `dup-${id}-${d}`, delay: 1000 + d * 150 });
+    for (const id of ids.slice(0, 12))
+      for (let d = 0; d < 5; d++)
+        await q.add(
+          'reminder.2h',
+          { taskId: id },
+          { jobId: `dup-${id}-${d}`, delay: 1000 + d * 150 },
+        );
     const mails = await waitForMails(36, 25_000);
     await sleep(3000);
-    const notDone = await rows<{ status: string; attempts: number; last_error: string | null }>(t.db, sql`SELECT status, attempts, last_error FROM scheduled_tasks WHERE status <> 'done' AND id IN (${sql.join(ids.map((i) => sql`${i}::uuid`), sql`, `)})`);
+    const notDone = await rows<{ status: string; attempts: number; last_error: string | null }>(
+      t.db,
+      sql`SELECT status, attempts, last_error FROM scheduled_tasks WHERE status <> 'done' AND id IN (${sql.join(
+        ids.map((i) => sql`${i}::uuid`),
+        sql`, `,
+      )})`,
+    );
     expect(notDone, JSON.stringify(notDone)).toEqual([]);
     const all = await listMails();
     expect(mails.length).toBeGreaterThanOrEqual(36);
@@ -202,9 +287,18 @@ describe('several workers (invariant 10, acceptance 11)', () => {
   it('two workers racing on the same fresh task: the row lock admits one', async () => {
     const a = await bookReal(ctx(), w, 37, 2, 20, '10:00', 'k-n1');
     for (let round = 0; round < 8; round++) {
-      await insertTask(t.db, { kind: 'email.booking_confirmed', runAt: new Date(), payload: { appointmentId: a.id }, key: `race-${round}` });
+      await insertTask(t.db, {
+        kind: 'email.booking_confirmed',
+        runAt: new Date(),
+        payload: { appointmentId: a.id },
+        key: `race-${round}`,
+      });
     }
-    await Promise.all([spawn({ WORKER_PROCESSING_DELAY_MS: '200' }), spawn({ WORKER_PROCESSING_DELAY_MS: '200' }), spawn({ WORKER_PROCESSING_DELAY_MS: '200' })]);
+    await Promise.all([
+      spawn({ WORKER_PROCESSING_DELAY_MS: '200' }),
+      spawn({ WORKER_PROCESSING_DELAY_MS: '200' }),
+      spawn({ WORKER_PROCESSING_DELAY_MS: '200' }),
+    ]);
     await waitForMails(8, 15_000);
     await sleep(2000);
     expect(await listMails()).toHaveLength(8);
@@ -216,17 +310,40 @@ describe('offers on a day the doctor is off', () => {
   it('the offer email is not sent when the doctor was marked sick after the offer was made', async () => {
     const { joinWaitlist } = await import('@clinic/domain');
     const a = await bookReal(ctx(), w, 38, 2, 26, '10:00', 'k-off1');
-    must(await joinWaitlist(ctx(), (w.patients[39] as World['patients'][number]).actor, { doctorId: a.doctorId, serviceId: w.c30, fromDate: futureWorkday(26), toDate: futureWorkday(27) }));
-    must(await cancelAppointment(ctx(), (w.patients[38] as World['patients'][number]).actor, { appointmentId: a.id }));
+    must(
+      await joinWaitlist(ctx(), (w.patients[39] as World['patients'][number]).actor, {
+        doctorId: a.doctorId,
+        serviceId: w.c30,
+        fromDate: futureWorkday(26),
+        toDate: futureWorkday(27),
+      }),
+    );
+    must(
+      await cancelAppointment(ctx(), (w.patients[38] as World['patients'][number]).actor, {
+        appointmentId: a.id,
+      }),
+    );
     // the offer exists; its email task is pending (no worker running yet). Now the doctor is marked sick
     // the way a concurrent mark would leave things: exception committed, offer task already "taken".
-    await t.db.execute(sql`INSERT INTO schedule_exceptions (doctor_id, local_date, kind) VALUES (${a.doctorId}::uuid, ${a.localDate}::date, 'sick')`);
-    expect(await count(t.db, sql`SELECT count(*)::int AS n FROM scheduled_tasks WHERE kind = 'email.waitlist_offer' AND status = 'pending'`)).toBe(1);
+    await t.db.execute(
+      sql`INSERT INTO schedule_exceptions (doctor_id, local_date, kind) VALUES (${a.doctorId}::uuid, ${a.localDate}::date, 'sick')`,
+    );
+    expect(
+      await count(
+        t.db,
+        sql`SELECT count(*)::int AS n FROM scheduled_tasks WHERE kind = 'email.waitlist_offer' AND status = 'pending'`,
+      ),
+    ).toBe(1);
     await spawn();
     await sleep(3000);
     // (the plain cancellation email to the first patient is fine; the OFFER email must not be sent)
     expect((await listMails()).filter((m) => m.Subject.includes('Звільнився'))).toHaveLength(0);
-    expect(await count(t.db, sql`SELECT count(*)::int AS n FROM scheduled_tasks WHERE kind = 'email.waitlist_offer' AND status = 'pending'`)).toBe(0); // stale: closed, not sent
+    expect(
+      await count(
+        t.db,
+        sql`SELECT count(*)::int AS n FROM scheduled_tasks WHERE kind = 'email.waitlist_offer' AND status = 'pending'`,
+      ),
+    ).toBe(0); // stale: closed, not sent
   });
 });
 
@@ -253,7 +370,11 @@ describe('failures and poison', () => {
   it('a poison task (unknown kind, malformed id) is retried a bounded number of times and never blocks the others', async () => {
     const a = await bookReal(ctx(), w, 31, 4, 22, '10:00', 'k-p1');
     const p1 = await insertTask(t.db, { kind: 'does.not.exist', runAt: new Date(), payload: {} });
-    const p2 = await insertTask(t.db, { kind: 'reminder.2h', runAt: new Date(), payload: { appointmentId: "x'; DROP TABLE appointments;--", version: 1 } });
+    const p2 = await insertTask(t.db, {
+      kind: 'reminder.2h',
+      runAt: new Date(),
+      payload: { appointmentId: "x'; DROP TABLE appointments;--", version: 1 },
+    });
     const good = await reminder(a.id, a.version, 800);
     await spawn({ WORKER_MAX_ATTEMPTS: '3' });
     await waitForMails(1, 10_000);
@@ -273,9 +394,16 @@ describe('failures and poison', () => {
     const id = await reminder(a.id, a.version, 2 * 3600_000);
     await spawn({ WORKER_HORIZON_SECONDS: '60' });
     await sleep(1200);
-    const q = new Queue(queue, { connection: { host: new URL(inject('redisUrl')).hostname, port: Number(new URL(inject('redisUrl')).port) } });
+    const q = new Queue(queue, {
+      connection: {
+        host: new URL(inject('redisUrl')).hostname,
+        port: Number(new URL(inject('redisUrl')).port),
+      },
+    });
     expect((await q.getJobCounts('delayed', 'waiting', 'active')).delayed).toBe(0);
-    await t.db.execute(sql`UPDATE scheduled_tasks SET run_at = now() + interval '1 second' WHERE id = ${id}::uuid`);
+    await t.db.execute(
+      sql`UPDATE scheduled_tasks SET run_at = now() + interval '1 second' WHERE id = ${id}::uuid`,
+    );
     const mails = await waitForMails(1, 10_000);
     expect(mails).toHaveLength(1);
     await q.close();

@@ -1,4 +1,8 @@
-import { RateLimiterMemory, RateLimiterRedis, type RateLimiterAbstract } from 'rate-limiter-flexible';
+import {
+  RateLimiterMemory,
+  RateLimiterRedis,
+  type RateLimiterAbstract,
+} from 'rate-limiter-flexible';
 import type { Redis } from 'ioredis';
 
 export type LimitRule = { points: number; durationSec: number };
@@ -12,7 +16,11 @@ export type Limiter = { consume: (key: string, points?: number) => Promise<Limit
  * failing open or taking the API down.
  */
 export const createLimiter = (name: string, rule: LimitRule, redis: Redis | null): Limiter => {
-  const memory = new RateLimiterMemory({ keyPrefix: `rl:${name}`, points: rule.points, duration: rule.durationSec });
+  const memory = new RateLimiterMemory({
+    keyPrefix: `rl:${name}`,
+    points: rule.points,
+    duration: rule.durationSec,
+  });
   const limiter: RateLimiterAbstract = redis
     ? new RateLimiterRedis({
         storeClient: redis,
@@ -30,7 +38,8 @@ export const createLimiter = (name: string, rule: LimitRule, redis: Redis | null
         return { ok: true };
       } catch (e) {
         const ms = (e as { msBeforeNext?: number }).msBeforeNext;
-        if (typeof ms === 'number') return { ok: false, retryAfterSec: Math.max(1, Math.ceil(ms / 1000)) };
+        if (typeof ms === 'number')
+          return { ok: false, retryAfterSec: Math.max(1, Math.ceil(ms / 1000)) };
         // an unexpected limiter failure must not become an outage
         return { ok: true };
       }

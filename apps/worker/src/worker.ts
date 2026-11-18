@@ -1,4 +1,11 @@
-import { Inject, Injectable, Module, type DynamicModule, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
+import {
+  Inject,
+  Injectable,
+  Module,
+  type DynamicModule,
+  type OnModuleDestroy,
+  type OnModuleInit,
+} from '@nestjs/common';
 import { Queue, Worker, type ConnectionOptions } from 'bullmq';
 import { Redis } from 'ioredis';
 import pg from 'pg';
@@ -31,15 +38,33 @@ const bullConnection = (url: string, opts: { failFast?: boolean } = {}): Connect
   };
 };
 
-const timeout = (ms: number): Promise<'timeout'> => new Promise((r) => setTimeout(() => r('timeout'), ms).unref());
+const timeout = (ms: number): Promise<'timeout'> =>
+  new Promise((r) => setTimeout(() => r('timeout'), ms).unref());
 
 /**
  * Shutdown must never hang on a dead Redis or a stuck connection: wait politely, then force, and
  * in the end give up waiting (the process is exiting anyway). Every step is bounded.
  */
-const closeWithin = async (ms: number, graceful: () => Promise<unknown>, force: () => Promise<unknown>): Promise<void> => {
-  const r = await Promise.race([graceful().then(() => 'ok' as const, () => 'ok' as const), timeout(ms)]);
-  if (r === 'timeout') await Promise.race([force().then(() => undefined, () => undefined), timeout(2000)]);
+const closeWithin = async (
+  ms: number,
+  graceful: () => Promise<unknown>,
+  force: () => Promise<unknown>,
+): Promise<void> => {
+  const r = await Promise.race([
+    graceful().then(
+      () => 'ok' as const,
+      () => 'ok' as const,
+    ),
+    timeout(ms),
+  ]);
+  if (r === 'timeout')
+    await Promise.race([
+      force().then(
+        () => undefined,
+        () => undefined,
+      ),
+      timeout(2000),
+    ]);
 };
 
 /**
@@ -56,10 +81,15 @@ export class Dispatcher implements OnModuleInit, OnModuleDestroy {
   private running = false;
   private again = false;
 
-  constructor(@Inject(ENV) private readonly env: WorkerEnv, @Inject(DEPS) private readonly deps: WorkerDeps) {}
+  constructor(
+    @Inject(ENV) private readonly env: WorkerEnv,
+    @Inject(DEPS) private readonly deps: WorkerDeps,
+  ) {}
 
   async onModuleInit(): Promise<void> {
-    this.queue = new Queue(this.env.QUEUE_NAME, { connection: bullConnection(this.env.REDIS_URL, { failFast: true }) });
+    this.queue = new Queue(this.env.QUEUE_NAME, {
+      connection: bullConnection(this.env.REDIS_URL, { failFast: true }),
+    });
     this.queue.on('error', (e) => log('queue error', { error: e.message }));
     // never block startup on Redis: the worker must come up (and keep retrying) while it is down
     void this.reconcile();
@@ -88,9 +118,16 @@ export class Dispatcher implements OnModuleInit, OnModuleDestroy {
         );
         for (const t of r.rows as { id: string; kind: string; run_at: Date; attempts: number }[]) {
           // a task that already failed waits longer each time, so an outage cannot burn all attempts
-          const backoff = t.attempts === 0 ? 0 : Math.min(this.env.WORKER_RETRY_BASE_MS * 2 ** t.attempts, 300_000);
+          const backoff =
+            t.attempts === 0
+              ? 0
+              : Math.min(this.env.WORKER_RETRY_BASE_MS * 2 ** t.attempts, 300_000);
           const delay = Math.max(0, new Date(t.run_at).getTime() + backoff - now.getTime());
-          await this.queue.add(t.kind, { taskId: t.id }, { jobId: t.id, delay, removeOnComplete: true, removeOnFail: true, attempts: 1 });
+          await this.queue.add(
+            t.kind,
+            { taskId: t.id },
+            { jobId: t.id, delay, removeOnComplete: true, removeOnFail: true, attempts: 1 },
+          );
           added++;
         }
       } while (this.again && !this.closed);
@@ -128,7 +165,11 @@ export class Dispatcher implements OnModuleInit, OnModuleDestroy {
     this.closed = true;
     if (this.timer) clearInterval(this.timer);
     await this.listener?.end().catch(() => undefined);
-    await closeWithin(3000, () => this.queue.close(), () => this.queue.disconnect());
+    await closeWithin(
+      3000,
+      () => this.queue.close(),
+      () => this.queue.disconnect(),
+    );
   }
 }
 
@@ -137,7 +178,10 @@ export class Dispatcher implements OnModuleInit, OnModuleDestroy {
 export class Consumer implements OnModuleInit, OnModuleDestroy {
   private worker!: Worker;
 
-  constructor(@Inject(ENV) private readonly env: WorkerEnv, @Inject(DEPS) private readonly deps: WorkerDeps) {}
+  constructor(
+    @Inject(ENV) private readonly env: WorkerEnv,
+    @Inject(DEPS) private readonly deps: WorkerDeps,
+  ) {}
 
   onModuleInit(): void {
     this.worker = new Worker(
@@ -155,22 +199,42 @@ export class Consumer implements OnModuleInit, OnModuleDestroy {
       },
     );
     this.worker.on('error', (e) => log('worker error', { error: e.message }));
-    this.worker.on('completed', (job, outcome) => log('task processed', { taskId: (job.data as { taskId?: string }).taskId, kind: job.name, outcome }));
+    this.worker.on('completed', (job, outcome) =>
+      log('task processed', {
+        taskId: (job.data as { taskId?: string }).taskId,
+        kind: job.name,
+        outcome,
+      }),
+    );
     this.worker.on('failed', (job, e) => log('task failed', { jobId: job?.id, error: e.message }));
   }
 
   async onModuleDestroy(): Promise<void> {
     // active jobs get 10 s to finish (their row locks are released if they do not); then force
-    await closeWithin(10_000, () => this.worker.close(), () => this.worker.close(true));
+    await closeWithin(
+      10_000,
+      () => this.worker.close(),
+      () => this.worker.close(true),
+    );
   }
 }
 
 @Module({})
 export class WorkerModule {
   static register(env: WorkerEnv, overrides: { now?: () => Date } = {}): DynamicModule {
-    const pool = createPool(env.DATABASE_URL, env.WORKER_CONCURRENCY * 2 + 6, (e) => log('db idle error', { error: e.message }));
-    const mailer: Mailer = createMailer({ host: env.SMTP_HOST, port: env.SMTP_PORT, from: env.MAIL_FROM });
-    const publisher = new Redis(env.REDIS_URL, { maxRetriesPerRequest: 1, enableOfflineQueue: false, retryStrategy: (n) => Math.min(n * 200, 2000) });
+    const pool = createPool(env.DATABASE_URL, env.WORKER_CONCURRENCY * 2 + 6, (e) =>
+      log('db idle error', { error: e.message }),
+    );
+    const mailer: Mailer = createMailer({
+      host: env.SMTP_HOST,
+      port: env.SMTP_PORT,
+      from: env.MAIL_FROM,
+    });
+    const publisher = new Redis(env.REDIS_URL, {
+      maxRetriesPerRequest: 1,
+      enableOfflineQueue: false,
+      retryStrategy: (n) => Math.min(n * 200, 2000),
+    });
     publisher.on('error', () => undefined); // best-effort channel; failures are logged at publish time
     const now = overrides.now ?? (() => new Date());
     const deps: WorkerDeps = {
@@ -200,7 +264,11 @@ export class WorkerModule {
         },
         Dispatcher,
         Consumer,
-        { provide: 'CLEANUP', useFactory: (c: { close: () => Promise<void> }) => ({ onModuleDestroy: () => c.close() }), inject: [REDIS_CONN] },
+        {
+          provide: 'CLEANUP',
+          useFactory: (c: { close: () => Promise<void> }) => ({ onModuleDestroy: () => c.close() }),
+          inject: [REDIS_CONN],
+        },
       ],
     };
   }

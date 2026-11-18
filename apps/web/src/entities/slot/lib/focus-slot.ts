@@ -5,7 +5,9 @@
 export const focusSlot = (s: { doctorId: string; startsAt: string }): void => {
   let tries = 0;
   const attempt = (): void => {
-    const el = [...document.querySelectorAll<HTMLButtonElement>('[data-testid="slot"]')].find((b) => b.dataset['doctor'] === s.doctorId && b.dataset['start'] === s.startsAt);
+    const el = [...document.querySelectorAll<HTMLButtonElement>('[data-testid="slot"]')].find(
+      (b) => b.dataset['doctor'] === s.doctorId && b.dataset['start'] === s.startsAt,
+    );
     if (el) el.focus();
     else if (++tries < 40) setTimeout(attempt, 50);
   };

@@ -32,14 +32,21 @@ export const enqueueTask = async (
  * executing right now (it holds the row while it calls back into the domain) is not waited for;
  * waiting would be a deadlock the database cannot see. That task finds its target already closed.
  */
-export const cancelTasksOf = async (tx: Tx, appointmentId: string, kinds: readonly TaskKind[]): Promise<void> => {
+export const cancelTasksOf = async (
+  tx: Tx,
+  appointmentId: string,
+  kinds: readonly TaskKind[],
+): Promise<void> => {
   if (kinds.length === 0) return;
   await tx.execute(sql`
     UPDATE scheduled_tasks SET status = 'cancelled'
     WHERE id IN (
       SELECT id FROM scheduled_tasks
       WHERE status = 'pending' AND payload->>'appointmentId' = ${appointmentId}
-        AND kind IN (${sql.join(kinds.map((k) => sql`${k}`), sql`, `)})
+        AND kind IN (${sql.join(
+          kinds.map((k) => sql`${k}`),
+          sql`, `,
+        )})
       FOR UPDATE SKIP LOCKED)`);
 };
 

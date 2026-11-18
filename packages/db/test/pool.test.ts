@@ -20,7 +20,9 @@ describe('connection pool survives the database killing connections', () => {
     await Promise.all(Array.from({ length: 5 }, () => db.execute(sql`SELECT pg_sleep(0.05)`)));
     const admin = new pg.Client({ connectionString: t.url });
     await admin.connect();
-    await admin.query("SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = current_database() AND pid <> pg_backend_pid() AND application_name = ''");
+    await admin.query(
+      "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = current_database() AND pid <> pg_backend_pid() AND application_name = ''",
+    );
     await new Promise((r) => setTimeout(r, 300));
     const r = await db.execute(sql`SELECT 1 AS ok`);
     expect((r.rows[0] as { ok: number }).ok).toBe(1);

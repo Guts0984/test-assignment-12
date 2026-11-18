@@ -1,9 +1,36 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { sql } from 'drizzle-orm';
 import {
-  acceptOffer, cancelAppointment, confirmBooking, declineOffer, expireHold, expireOffer, getAvailability, holdSlot, joinWaitlist, leaveWaitlist, type Actor, type Ctx,
+  acceptOffer,
+  cancelAppointment,
+  confirmBooking,
+  declineOffer,
+  expireHold,
+  expireOffer,
+  getAvailability,
+  holdSlot,
+  joinWaitlist,
+  leaveWaitlist,
+  type Actor,
+  type Ctx,
 } from '../src/index.js';
-import { HOUR, MIN, T0, at, codeOf, count, createTestDb, makeCtx, makeWorld, must, rows, workday, type Clock, type TestDb, type World } from './helpers.js';
+import {
+  HOUR,
+  MIN,
+  T0,
+  at,
+  codeOf,
+  count,
+  createTestDb,
+  makeCtx,
+  makeWorld,
+  must,
+  rows,
+  workday,
+  type Clock,
+  type TestDb,
+  type World,
+} from './helpers.js';
 
 let t: TestDb;
 let w: World;
@@ -28,7 +55,12 @@ beforeEach(async () => {
   await t.db.execute(sql`UPDATE waitlist_entries SET status = 'cancelled' WHERE status = 'active'`);
 });
 
-const slotReq = (day: number, time: string, doctor: number, svc: 'c30' | 'q15' | 'u30' = 'c30') => ({
+const slotReq = (
+  day: number,
+  time: string,
+  doctor: number,
+  svc: 'c30' | 'q15' | 'u30' = 'c30',
+) => ({
   clinicId: w.kyiv,
   doctorId: w.kyivDoctors[doctor] as string,
   serviceId: svc === 'c30' ? w.c30 : svc === 'q15' ? w.q15 : w.u30,
@@ -38,19 +70,54 @@ const book = async (actor: Actor, req: ReturnType<typeof slotReq>) => {
   const h = must(await holdSlot(ctx, actor, req));
   return must(await confirmBooking(ctx, actor, { appointmentId: h.id, idempotencyKey: k() }));
 };
-const join = async (who: number, doctor: number, day: number, spanDays = 5, svc: 'c30' | 'q15' = 'c30', priorityMinutes = 0) => {
+const join = async (
+  who: number,
+  doctor: number,
+  day: number,
+  spanDays = 5,
+  svc: 'c30' | 'q15' = 'c30',
+  priorityMinutes = 0,
+) => {
   clock.now = new Date(T0.getTime() + priorityMinutes * MIN);
-  const e = must(await joinWaitlist(ctx, P(who), { doctorId: w.kyivDoctors[doctor] as string, serviceId: svc === 'c30' ? w.c30 : w.q15, fromDate: workday(day), toDate: workday(day + spanDays) }));
+  const e = must(
+    await joinWaitlist(ctx, P(who), {
+      doctorId: w.kyivDoctors[doctor] as string,
+      serviceId: svc === 'c30' ? w.c30 : w.q15,
+      fromDate: workday(day),
+      toDate: workday(day + spanDays),
+    }),
+  );
   clock.now = T0;
   return e;
 };
-type Offer = { id: string; entry_id: string; status: string; appointment_id: string; expires_at: string; patient_id: string };
+type Offer = {
+  id: string;
+  entry_id: string;
+  status: string;
+  appointment_id: string;
+  expires_at: string;
+  patient_id: string;
+};
 const offers = (doctorId: string, startsAt: Date) =>
-  rows<Offer>(t.db, sql`SELECT o.id, o.entry_id, o.status, o.appointment_id, o.expires_at, a.patient_id FROM waitlist_offers o JOIN appointments a ON a.id = o.appointment_id JOIN waitlist_entries e ON e.id = o.entry_id WHERE a.doctor_id = ${doctorId}::uuid AND a.starts_at = ${startsAt.toISOString()}::timestamptz ORDER BY e.created_at, o.id`);
+  rows<Offer>(
+    t.db,
+    sql`SELECT o.id, o.entry_id, o.status, o.appointment_id, o.expires_at, a.patient_id FROM waitlist_offers o JOIN appointments a ON a.id = o.appointment_id JOIN waitlist_entries e ON e.id = o.entry_id WHERE a.doctor_id = ${doctorId}::uuid AND a.starts_at = ${startsAt.toISOString()}::timestamptz ORDER BY e.created_at, o.id`,
+  );
 const live = (doctorId: string, startsAt: Date) =>
-  count(t.db, sql`SELECT count(*)::int AS n FROM appointments WHERE doctor_id = ${doctorId}::uuid AND starts_at = ${startsAt.toISOString()}::timestamptz AND status IN ('held','booked')`);
+  count(
+    t.db,
+    sql`SELECT count(*)::int AS n FROM appointments WHERE doctor_id = ${doctorId}::uuid AND starts_at = ${startsAt.toISOString()}::timestamptz AND status IN ('held','booked')`,
+  );
 const inGrid = async (doctor: number, day: number, startsAt: Date): Promise<boolean> => {
-  const g = must(await getAvailability(ctx, { clinicId: w.kyiv, serviceId: w.c30, doctorId: w.kyivDoctors[doctor] as string, fromDate: workday(day), days: 1 }));
+  const g = must(
+    await getAvailability(ctx, {
+      clinicId: w.kyiv,
+      serviceId: w.c30,
+      doctorId: w.kyivDoctors[doctor] as string,
+      fromDate: workday(day),
+      days: 1,
+    }),
+  );
   return g.slots.some((s) => s.startsAt.getTime() === startsAt.getTime());
 };
 
@@ -69,8 +136,18 @@ describe('waiting list: the main story (acceptance 8)', () => {
     expect(new Date(o1[0]?.expires_at as string).getTime()).toBe(T0.getTime() + 15 * MIN);
     expect(await inGrid(0, 3, a.startsAt)).toBe(false); // hidden for everyone while offered
     expect(codeOf(await holdSlot(ctx, P(5), slotReq(3, '10:00', 0)))).toBe('SLOT_TAKEN');
-    expect(await count(t.db, sql`SELECT count(*)::int AS n FROM scheduled_tasks WHERE status='pending' AND payload->>'offerId' = ${o1[0]?.id as string}`)).toBe(2); // expiry + email
-    expect(await count(t.db, sql`SELECT count(*)::int AS n FROM notifications WHERE kind = 'waitlist_offer'`)).toBeGreaterThanOrEqual(1);
+    expect(
+      await count(
+        t.db,
+        sql`SELECT count(*)::int AS n FROM scheduled_tasks WHERE status='pending' AND payload->>'offerId' = ${o1[0]?.id as string}`,
+      ),
+    ).toBe(2); // expiry + email
+    expect(
+      await count(
+        t.db,
+        sql`SELECT count(*)::int AS n FROM notifications WHERE kind = 'waitlist_offer'`,
+      ),
+    ).toBeGreaterThanOrEqual(1);
 
     // 14 min 59 s: not due, nothing moves
     clock.now = new Date(T0.getTime() + 15 * MIN - 1000);
@@ -82,7 +159,10 @@ describe('waiting list: the main story (acceptance 8)', () => {
     const exp = must(await expireOffer(ctx, o1[0]?.id as string));
     expect(exp.outcome).toBe('closed');
     const o2 = await offers(a.doctorId, a.startsAt);
-    expect(o2.map((o) => [o.patient_id, o.status])).toEqual([[pid(1), 'expired'], [pid(2), 'pending']]);
+    expect(o2.map((o) => [o.patient_id, o.status])).toEqual([
+      [pid(1), 'expired'],
+      [pid(2), 'pending'],
+    ]);
     expect(await live(a.doctorId, a.startsAt)).toBe(1);
     expect(await inGrid(0, 3, a.startsAt)).toBe(false);
     expect(new Date(o2[1]?.expires_at as string).getTime()).toBe(clock.now.getTime() + 15 * MIN);
@@ -95,12 +175,28 @@ describe('waiting list: the main story (acceptance 8)', () => {
     expect(await inGrid(0, 3, a.startsAt)).toBe(false);
 
     // third accepts
-    const acc = must(await acceptOffer(ctx, P(3), { offerId: o3[2]?.id as string, idempotencyKey: k() }));
+    const acc = must(
+      await acceptOffer(ctx, P(3), { offerId: o3[2]?.id as string, idempotencyKey: k() }),
+    );
     expect(acc.status).toBe('booked');
     expect(acc.patientId).toBe(pid(3));
-    expect((await offers(a.doctorId, a.startsAt)).map((o) => o.status)).toEqual(['expired', 'declined', 'accepted']);
-    expect(await count(t.db, sql`SELECT count(*)::int AS n FROM waitlist_entries WHERE patient_id = ${pid(3)}::uuid AND status = 'fulfilled'`)).toBe(1);
-    expect(await count(t.db, sql`SELECT count(*)::int AS n FROM scheduled_tasks WHERE payload->>'appointmentId' = ${acc.id} AND kind LIKE 'reminder.%' AND status = 'pending'`)).toBe(2);
+    expect((await offers(a.doctorId, a.startsAt)).map((o) => o.status)).toEqual([
+      'expired',
+      'declined',
+      'accepted',
+    ]);
+    expect(
+      await count(
+        t.db,
+        sql`SELECT count(*)::int AS n FROM waitlist_entries WHERE patient_id = ${pid(3)}::uuid AND status = 'fulfilled'`,
+      ),
+    ).toBe(1);
+    expect(
+      await count(
+        t.db,
+        sql`SELECT count(*)::int AS n FROM scheduled_tasks WHERE payload->>'appointmentId' = ${acc.id} AND kind LIKE 'reminder.%' AND status = 'pending'`,
+      ),
+    ).toBe(2);
     expect(await live(a.doctorId, a.startsAt)).toBe(1);
   });
 
@@ -129,11 +225,15 @@ describe('waiting list: the main story (acceptance 8)', () => {
     must(await cancelAppointment(ctx, P(9), { appointmentId: a.id }));
     const [o] = await offers(a.doctorId, a.startsAt);
     clock.now = new Date(T0.getTime() + 15 * MIN);
-    expect(codeOf(await acceptOffer(ctx, P(10), { offerId: o?.id as string, idempotencyKey: k() }))).toBe('OFFER_EXPIRED');
+    expect(
+      codeOf(await acceptOffer(ctx, P(10), { offerId: o?.id as string, idempotencyKey: k() })),
+    ).toBe('OFFER_EXPIRED');
     expect(codeOf(await declineOffer(ctx, P(10), o?.id as string))).toBe('OFFER_EXPIRED');
     // even after the worker released it
     must(await expireOffer(ctx, o?.id as string));
-    expect(codeOf(await acceptOffer(ctx, P(10), { offerId: o?.id as string, idempotencyKey: k() }))).toBe('OFFER_EXPIRED');
+    expect(
+      codeOf(await acceptOffer(ctx, P(10), { offerId: o?.id as string, idempotencyKey: k() })),
+    ).toBe('OFFER_EXPIRED');
   });
 
   it('only the offered patient can answer', async () => {
@@ -141,10 +241,26 @@ describe('waiting list: the main story (acceptance 8)', () => {
     await join(12, 0, 7);
     must(await cancelAppointment(ctx, P(11), { appointmentId: a.id }));
     const [o] = await offers(a.doctorId, a.startsAt);
-    expect(codeOf(await acceptOffer(ctx, P(13), { offerId: o?.id as string, idempotencyKey: k() }))).toBe('NOT_FOUND');
+    expect(
+      codeOf(await acceptOffer(ctx, P(13), { offerId: o?.id as string, idempotencyKey: k() })),
+    ).toBe('NOT_FOUND');
     expect(codeOf(await declineOffer(ctx, P(13), o?.id as string))).toBe('NOT_FOUND');
-    expect(codeOf(await acceptOffer(ctx, w.registrar.warsaw, { offerId: o?.id as string, idempotencyKey: k() }))).toBe('NOT_FOUND');
-    expect(codeOf(await acceptOffer(ctx, P(12), { offerId: '00000000-0000-4000-8000-000000000000', idempotencyKey: k() }))).toBe('NOT_FOUND');
+    expect(
+      codeOf(
+        await acceptOffer(ctx, w.registrar.warsaw, {
+          offerId: o?.id as string,
+          idempotencyKey: k(),
+        }),
+      ),
+    ).toBe('NOT_FOUND');
+    expect(
+      codeOf(
+        await acceptOffer(ctx, P(12), {
+          offerId: '00000000-0000-4000-8000-000000000000',
+          idempotencyKey: k(),
+        }),
+      ),
+    ).toBe('NOT_FOUND');
   });
 });
 
@@ -163,7 +279,13 @@ describe('who is "suitable"', () => {
     const o = await offers(a.doctorId, a.startsAt);
     expect(o.map((x) => x.patient_id)).toEqual([pid(19)]);
     for (const who of [15, 16, 17, 18, 20])
-      expect(await count(t.db, sql`SELECT count(*)::int AS n FROM waitlist_entries WHERE patient_id = ${pid(who)}::uuid AND status = 'active'`), `p${who}`).toBe(1);
+      expect(
+        await count(
+          t.db,
+          sql`SELECT count(*)::int AS n FROM waitlist_entries WHERE patient_id = ${pid(who)}::uuid AND status = 'active'`,
+        ),
+        `p${who}`,
+      ).toBe(1);
   });
 
   it('a person who already has an open offer is not given a second time at once', async () => {
@@ -197,11 +319,15 @@ describe('who is "suitable"', () => {
   it('a patient whose online booking is blocked still receives offers and may accept them', async () => {
     const a = await book(P(30), slotReq(12, '10:00', 0));
     await join(31, 0, 12);
-    await t.db.execute(sql`UPDATE patients SET online_booking_blocked_until = ${new Date(T0.getTime() + 20 * 86_400_000).toISOString()}::timestamptz WHERE id = ${pid(31)}::uuid`);
+    await t.db.execute(
+      sql`UPDATE patients SET online_booking_blocked_until = ${new Date(T0.getTime() + 20 * 86_400_000).toISOString()}::timestamptz WHERE id = ${pid(31)}::uuid`,
+    );
     must(await cancelAppointment(ctx, P(30), { appointmentId: a.id }));
     const [o] = await offers(a.doctorId, a.startsAt);
     expect(o?.patient_id).toBe(pid(31));
-    expect(codeOf(await acceptOffer(ctx, P(31), { offerId: o?.id as string, idempotencyKey: k() }))).toBe('ok');
+    expect(
+      codeOf(await acceptOffer(ctx, P(31), { offerId: o?.id as string, idempotencyKey: k() })),
+    ).toBe('ok');
   });
 
   it('a regular hold that expires also hands the time on', async () => {
@@ -216,12 +342,26 @@ describe('who is "suitable"', () => {
   it('works for ultrasound services: the room stays reserved by the offer', async () => {
     const h = await book(P(34), slotReq(14, '11:00', 0, 'u30'));
     clock.now = T0;
-    const e = must(await joinWaitlist(ctx, P(35), { doctorId: w.kyivDoctors[1] as string, serviceId: w.u30, fromDate: workday(14), toDate: workday(15) }));
+    const e = must(
+      await joinWaitlist(ctx, P(35), {
+        doctorId: w.kyivDoctors[1] as string,
+        serviceId: w.u30,
+        fromDate: workday(14),
+        toDate: workday(15),
+      }),
+    );
     expect(e.status).toBe('active');
     must(await cancelAppointment(ctx, P(34), { appointmentId: h.id }));
     // the freed time belongs to doctor 0; entry was for doctor 1 so no offer; room is free again
     expect(await offers(h.doctorId, h.startsAt)).toHaveLength(0);
-    const e2 = must(await joinWaitlist(ctx, P(36), { doctorId: w.kyivDoctors[0] as string, serviceId: w.u30, fromDate: workday(14), toDate: workday(15) }));
+    const e2 = must(
+      await joinWaitlist(ctx, P(36), {
+        doctorId: w.kyivDoctors[0] as string,
+        serviceId: w.u30,
+        fromDate: workday(14),
+        toDate: workday(15),
+      }),
+    );
     const h2 = await book(P(37), slotReq(14, '11:00', 0, 'u30'));
     must(await cancelAppointment(ctx, P(37), { appointmentId: h2.id }));
     const [o] = await offers(h2.doctorId, h2.startsAt);
@@ -242,7 +382,9 @@ describe('concurrency', () => {
     must(await cancelAppointment(ctx, P(0), { appointmentId: a.id }));
     const [o] = await offers(a.doctorId, a.startsAt);
     clock.now = new Date(T0.getTime() + 15 * MIN);
-    const res = await Promise.all(Array.from({ length: 5 }, () => expireOffer(ctx, o?.id as string)));
+    const res = await Promise.all(
+      Array.from({ length: 5 }, () => expireOffer(ctx, o?.id as string)),
+    );
     expect(res.every((r) => r.ok)).toBe(true);
     expect(res.filter((r) => r.ok && r.value.outcome === 'closed')).toHaveLength(1);
     const all = await offers(a.doctorId, a.startsAt);
@@ -255,7 +397,10 @@ describe('concurrency', () => {
     const b = await book(P(5), slotReq(17, '11:00', 1));
     await join(6, 1, 17, 3, 'c30', 0);
     await join(7, 1, 17, 3, 'c30', 1);
-    await Promise.all([cancelAppointment(ctx, P(4), { appointmentId: a.id }), cancelAppointment(ctx, P(5), { appointmentId: b.id })]);
+    await Promise.all([
+      cancelAppointment(ctx, P(4), { appointmentId: a.id }),
+      cancelAppointment(ctx, P(5), { appointmentId: b.id }),
+    ]);
     const oa = await offers(a.doctorId, a.startsAt);
     const ob = await offers(b.doctorId, b.startsAt);
     const got = [...oa, ...ob].map((x) => x.patient_id).sort();
@@ -283,29 +428,97 @@ describe('concurrency', () => {
   });
 
   it('global invariant: never two live rows at one doctor time', async () => {
-    const dup = await rows(t.db, sql`SELECT doctor_id, starts_at FROM appointments WHERE status IN ('held','booked','checked_in') GROUP BY 1,2 HAVING count(*) > 1`);
+    const dup = await rows(
+      t.db,
+      sql`SELECT doctor_id, starts_at FROM appointments WHERE status IN ('held','booked','checked_in') GROUP BY 1,2 HAVING count(*) > 1`,
+    );
     expect(dup).toEqual([]);
   });
 });
 
 describe('joining and leaving', () => {
   it('limits: 5 active requests, duplicates collapse, doctor must provide the service', async () => {
-    for (let i = 0; i < 5; i++) must(await joinWaitlist(ctx, P(0), { doctorId: w.kyivDoctors[i] as string, serviceId: w.c30, fromDate: workday(20), toDate: workday(22) }));
-    expect(codeOf(await joinWaitlist(ctx, P(0), { doctorId: w.kyivDoctors[5] as string, serviceId: w.c30, fromDate: workday(20), toDate: workday(22) }))).toBe('WAITLIST_LIMIT_REACHED');
-    const again = must(await joinWaitlist(ctx, P(0), { doctorId: w.kyivDoctors[0] as string, serviceId: w.c30, fromDate: workday(21), toDate: workday(23) }));
+    for (let i = 0; i < 5; i++)
+      must(
+        await joinWaitlist(ctx, P(0), {
+          doctorId: w.kyivDoctors[i] as string,
+          serviceId: w.c30,
+          fromDate: workday(20),
+          toDate: workday(22),
+        }),
+      );
+    expect(
+      codeOf(
+        await joinWaitlist(ctx, P(0), {
+          doctorId: w.kyivDoctors[5] as string,
+          serviceId: w.c30,
+          fromDate: workday(20),
+          toDate: workday(22),
+        }),
+      ),
+    ).toBe('WAITLIST_LIMIT_REACHED');
+    const again = must(
+      await joinWaitlist(ctx, P(0), {
+        doctorId: w.kyivDoctors[0] as string,
+        serviceId: w.c30,
+        fromDate: workday(21),
+        toDate: workday(23),
+      }),
+    );
     expect(again.doctorId).toBe(w.kyivDoctors[0]);
-    expect(await count(t.db, sql`SELECT count(*)::int AS n FROM waitlist_entries WHERE patient_id = ${pid(0)}::uuid AND status = 'active'`)).toBe(5);
-    await t.db.execute(sql`DELETE FROM doctor_services WHERE doctor_id = ${w.kyivDoctors[3]}::uuid AND service_id = ${w.u30}::uuid`);
-    expect(codeOf(await joinWaitlist(ctx, P(1), { doctorId: w.kyivDoctors[3] as string, serviceId: w.u30, fromDate: workday(20), toDate: workday(22) }))).toBe('SERVICE_NOT_PROVIDED');
+    expect(
+      await count(
+        t.db,
+        sql`SELECT count(*)::int AS n FROM waitlist_entries WHERE patient_id = ${pid(0)}::uuid AND status = 'active'`,
+      ),
+    ).toBe(5);
+    await t.db.execute(
+      sql`DELETE FROM doctor_services WHERE doctor_id = ${w.kyivDoctors[3]}::uuid AND service_id = ${w.u30}::uuid`,
+    );
+    expect(
+      codeOf(
+        await joinWaitlist(ctx, P(1), {
+          doctorId: w.kyivDoctors[3] as string,
+          serviceId: w.u30,
+          fromDate: workday(20),
+          toDate: workday(22),
+        }),
+      ),
+    ).toBe('SERVICE_NOT_PROVIDED');
   });
   it('only patients join; leaving is for the owner', async () => {
-    expect(codeOf(await joinWaitlist(ctx, w.registrar.kyiv, { doctorId: w.kyivDoctors[0] as string, serviceId: w.c30, fromDate: workday(20), toDate: workday(22) }))).toBe('FORBIDDEN');
-    const e = must(await joinWaitlist(ctx, P(2), { doctorId: w.kyivDoctors[0] as string, serviceId: w.c30, fromDate: workday(20), toDate: workday(22) }));
+    expect(
+      codeOf(
+        await joinWaitlist(ctx, w.registrar.kyiv, {
+          doctorId: w.kyivDoctors[0] as string,
+          serviceId: w.c30,
+          fromDate: workday(20),
+          toDate: workday(22),
+        }),
+      ),
+    ).toBe('FORBIDDEN');
+    const e = must(
+      await joinWaitlist(ctx, P(2), {
+        doctorId: w.kyivDoctors[0] as string,
+        serviceId: w.c30,
+        fromDate: workday(20),
+        toDate: workday(22),
+      }),
+    );
     expect(codeOf(await leaveWaitlist(ctx, P(3), e.id))).toBe('NOT_FOUND');
     expect(codeOf(await leaveWaitlist(ctx, P(2), e.id))).toBe('ok');
   });
   it('a request ending in the past is refused', async () => {
-    expect(codeOf(await joinWaitlist(ctx, P(4), { doctorId: w.kyivDoctors[0] as string, serviceId: w.c30, fromDate: '2026-04-01', toDate: '2026-04-10' }))).toBe('BAD_USER_INPUT');
+    expect(
+      codeOf(
+        await joinWaitlist(ctx, P(4), {
+          doctorId: w.kyivDoctors[0] as string,
+          serviceId: w.c30,
+          fromDate: '2026-04-01',
+          toDate: '2026-04-10',
+        }),
+      ),
+    ).toBe('BAD_USER_INPUT');
   });
 });
 void HOUR;

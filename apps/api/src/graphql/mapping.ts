@@ -3,7 +3,12 @@ import { BoardStateEnum } from './types.js';
 
 type Row = Record<string, unknown>;
 
-export const boardState = (status: string, startsAt: Date, endsAt: Date, now: Date): BoardStateEnum => {
+export const boardState = (
+  status: string,
+  startsAt: Date,
+  endsAt: Date,
+  now: Date,
+): BoardStateEnum => {
   switch (status) {
     case 'cancelled':
       return BoardStateEnum.cancelled;
@@ -12,7 +17,9 @@ export const boardState = (status: string, startsAt: Date, endsAt: Date, now: Da
     case 'completed':
       return BoardStateEnum.done;
     case 'checked_in':
-      return now.getTime() >= startsAt.getTime() ? BoardStateEnum.with_doctor : BoardStateEnum.arrived;
+      return now.getTime() >= startsAt.getTime()
+        ? BoardStateEnum.with_doctor
+        : BoardStateEnum.arrived;
     default:
       return now.getTime() > startsAt.getTime() ? BoardStateEnum.late : BoardStateEnum.expected;
   }
@@ -62,4 +69,5 @@ export const appointmentFromSql = (x: Row, now: Date = new Date()) =>
     now,
   );
 
-export const APPOINTMENT_COLUMNS = 'a.id, a.status, a.kind, a.starts_at, a.ends_at, a.local_date::text AS local_date, a.hold_expires_at, a.price_minor, a.currency, a.version, a.cancelled_late, a.created_at, a.doctor_id, a.clinic_id, a.service_id, a.patient_id';
+export const APPOINTMENT_COLUMNS =
+  'a.id, a.status, a.kind, a.starts_at, a.ends_at, a.local_date::text AS local_date, a.hold_expires_at, a.price_minor, a.currency, a.version, a.cancelled_late, a.created_at, a.doctor_id, a.clinic_id, a.service_id, a.patient_id';

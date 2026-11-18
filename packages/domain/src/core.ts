@@ -24,7 +24,11 @@ const FUTURE_COUNT_SQL = (patientId: string, now: Date, excludeId: string | null
          OR (status = 'held' AND kind = 'regular' AND hold_expires_at > ${now.toISOString()}::timestamptz))`;
 
 export const lockPatient = async (tx: Tx, patientId: string): Promise<Patient | null> => {
-  const rows = await tx.select().from(schema.patients).where(eq(schema.patients.id, patientId)).for('update');
+  const rows = await tx
+    .select()
+    .from(schema.patients)
+    .where(eq(schema.patients.id, patientId))
+    .for('update');
   return rows[0] ?? null;
 };
 
@@ -55,7 +59,10 @@ export const lockDoctorDay = (tx: Tx, doctorId: string, localDate: string): Prom
  * round deadlocks against a concurrent hold by the same patient.
  * Reads the visit unlocked to learn its patient, locks that patient, then locks the visit.
  */
-export const getAppointmentLockingPatient = async (tx: Tx, id: string): Promise<Appointment | null> => {
+export const getAppointmentLockingPatient = async (
+  tx: Tx,
+  id: string,
+): Promise<Appointment | null> => {
   const peek = await getAppointment(tx, id, false);
   if (!peek) return null;
   await lockPatient(tx, peek.patientId);
@@ -63,7 +70,10 @@ export const getAppointmentLockingPatient = async (tx: Tx, id: string): Promise<
 };
 
 /** Locks several doctor-days in one deterministic order (sorted), so two flows that need the same set cannot deadlock. */
-export const lockDoctorDays = async (tx: Tx, days: readonly { doctorId: string; localDate: string }[]): Promise<void> => {
+export const lockDoctorDays = async (
+  tx: Tx,
+  days: readonly { doctorId: string; localDate: string }[],
+): Promise<void> => {
   const keys = [...new Set(days.map((d) => `${d.doctorId}:${d.localDate}`))].sort();
   for (const key of keys) await advisoryLock(tx, 'doctor-day', key);
 };
@@ -72,7 +82,12 @@ export const lockDoctorDays = async (tx: Tx, days: readonly { doctorId: string; 
 export const lockPatientsSorted = async (tx: Tx, patientIds: readonly string[]): Promise<void> => {
   const ids = [...new Set(patientIds)].sort();
   if (ids.length === 0) return;
-  await tx.execute(sql`SELECT id FROM patients WHERE id IN (${sql.join(ids.map((i) => sql`${i}::uuid`), sql`, `)}) ORDER BY id FOR UPDATE`);
+  await tx.execute(
+    sql`SELECT id FROM patients WHERE id IN (${sql.join(
+      ids.map((i) => sql`${i}::uuid`),
+      sql`, `,
+    )}) ORDER BY id FOR UPDATE`,
+  );
 };
 
 /**
@@ -87,7 +102,10 @@ export const getAppointmentUnderDayLock = async (
 ): Promise<Appointment | null> => {
   let peek = await getAppointment(tx, id, false);
   for (let i = 0; i < 3 && peek; i++) {
-    await lockDoctorDays(tx, [peek, ...alsoDays.map((localDate) => ({ doctorId: (peek as Appointment).doctorId, localDate }))]);
+    await lockDoctorDays(tx, [
+      peek,
+      ...alsoDays.map((localDate) => ({ doctorId: (peek as Appointment).doctorId, localDate })),
+    ]);
     await lockPatient(tx, peek.patientId);
     const a = await getAppointment(tx, id, true);
     if (!a) return null;
@@ -97,14 +115,21 @@ export const getAppointmentUnderDayLock = async (
   return peek ? getAppointment(tx, id, true) : null;
 };
 
-export const getAppointment = async (tx: Tx, id: string, lock = true): Promise<Appointment | null> => {
+export const getAppointment = async (
+  tx: Tx,
+  id: string,
+  lock = true,
+): Promise<Appointment | null> => {
   const q = tx.select().from(schema.appointments).where(eq(schema.appointments.id, id));
   const rows = lock ? await q.for('update') : await q;
   return rows[0] ?? null;
 };
 
 /** Who may see / change this visit. `NOT_FOUND` (not FORBIDDEN) so ids cannot be probed. */
-export const canTouch = (actor: Actor, a: Pick<Appointment, 'patientId' | 'clinicId' | 'doctorId'>): boolean => {
+export const canTouch = (
+  actor: Actor,
+  a: Pick<Appointment, 'patientId' | 'clinicId' | 'doctorId'>,
+): boolean => {
   switch (actor.role) {
     case 'system':
       return true;
@@ -163,7 +188,8 @@ export const validateSlot = async (
     toDate: localDate,
     now,
   });
-  if (!inputs.service) return fail('SERVICE_NOT_PROVIDED', 'This clinic does not offer the service');
+  if (!inputs.service)
+    return fail('SERVICE_NOT_PROVIDED', 'This clinic does not offer the service');
   if (!inputs.doctors.some((d) => d.id === p.doctorId))
     return fail('SERVICE_NOT_PROVIDED', 'The doctor does not provide this service in this clinic');
   const okStart = isWorkingStart(
@@ -200,11 +226,23 @@ export const validateSlot = async (
  */
 export const sweepExpiredHolds = async (
   { tx, now, ctx }: TxEnv,
-  p: { doctorId: string; clinicId: string; patientId: string; needsUltrasound: boolean; startsAt: Date; endsAt: Date },
+  p: {
+    doctorId: string;
+    clinicId: string;
+    patientId: string;
+    needsUltrasound: boolean;
+    startsAt: Date;
+    endsAt: Date;
+  },
 ): Promise<void> => {
   const occEnd = new Date(p.endsAt.getTime() + ctx.rules.prepMinutes * 60_000);
   const room = p.needsUltrasound
-    ? (await tx.select({ id: schema.rooms.id }).from(schema.rooms).where(and(eq(schema.rooms.clinicId, p.clinicId), eq(schema.rooms.kind, 'ultrasound'))))[0]?.id ?? null
+    ? ((
+        await tx
+          .select({ id: schema.rooms.id })
+          .from(schema.rooms)
+          .where(and(eq(schema.rooms.clinicId, p.clinicId), eq(schema.rooms.kind, 'ultrasound')))
+      )[0]?.id ?? null)
     : null;
   await tx.execute(sql`
     SELECT release_expired_holds(${now.toISOString()}::timestamptz, ${p.doctorId}::uuid, ${room}::uuid,
@@ -224,4 +262,5 @@ export const notifyPatient = async (
     WHERE p.id = ${patientId}::uuid AND p.user_id IS NOT NULL`);
 };
 
-export const notFound = (what: string): Result<never, AppError> => err({ code: 'NOT_FOUND', message: `${what} not found` });
+export const notFound = (what: string): Result<never, AppError> =>
+  err({ code: 'NOT_FOUND', message: `${what} not found` });

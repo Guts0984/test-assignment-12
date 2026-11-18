@@ -11,7 +11,11 @@ export * from './helpers-domain.js';
 
 export const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
-export const workerEnv = (dbUrl: string, queue: string, over: Record<string, string> = {}): WorkerEnv =>
+export const workerEnv = (
+  dbUrl: string,
+  queue: string,
+  over: Record<string, string> = {},
+): WorkerEnv =>
   loadWorkerEnv({
     DATABASE_URL: dbUrl,
     REDIS_URL: inject('redisUrl'),
@@ -27,14 +31,22 @@ export const workerEnv = (dbUrl: string, queue: string, over: Record<string, str
 
 export type RunningWorker = { close: () => Promise<void> };
 export const startWorker = async (env: WorkerEnv): Promise<RunningWorker> => {
-  const app = await NestFactory.createApplicationContext(WorkerModule.register(env), { logger: false });
+  const app = await NestFactory.createApplicationContext(WorkerModule.register(env), {
+    logger: false,
+  });
   return { close: () => app.close() };
 };
 
 export const uniqueQueue = (): string => `q-${randomUUID().slice(0, 8)}`;
 
 // ---------- Mailpit ----------
-type MailMsg = { ID: string; MessageID: string; Subject: string; To: { Address: string }[]; Snippet: string };
+type MailMsg = {
+  ID: string;
+  MessageID: string;
+  Subject: string;
+  To: { Address: string }[];
+  Snippet: string;
+};
 export const listMails = async (): Promise<MailMsg[]> => {
   const r = await fetch(`${inject('mailUiUrl')}/api/v1/messages?limit=500`);
   return ((await r.json()) as { messages: MailMsg[] }).messages;
@@ -43,8 +55,15 @@ export const clearMails = async (): Promise<void> => {
   await fetch(`${inject('mailUiUrl')}/api/v1/messages`, { method: 'DELETE' });
 };
 export const mailBody = async (id: string): Promise<{ Text: string; HTML: string }> =>
-  (await (await fetch(`${inject('mailUiUrl')}/api/v1/message/${id}`)).json()) as { Text: string; HTML: string };
-export const waitForMails = async (n: number, timeoutMs = 15_000, pred: (m: MailMsg) => boolean = () => true): Promise<MailMsg[]> => {
+  (await (await fetch(`${inject('mailUiUrl')}/api/v1/message/${id}`)).json()) as {
+    Text: string;
+    HTML: string;
+  };
+export const waitForMails = async (
+  n: number,
+  timeoutMs = 15_000,
+  pred: (m: MailMsg) => boolean = () => true,
+): Promise<MailMsg[]> => {
   const end = Date.now() + timeoutMs;
   let last: MailMsg[] = [];
   while (Date.now() < end) {
@@ -56,7 +75,8 @@ export const waitForMails = async (n: number, timeoutMs = 15_000, pred: (m: Mail
 };
 
 // ---------- Redis ----------
-export const redisClient = (): Redis => new Redis(inject('redisUrl'), { maxRetriesPerRequest: null });
+export const redisClient = (): Redis =>
+  new Redis(inject('redisUrl'), { maxRetriesPerRequest: null });
 export const flushRedis = async (): Promise<void> => {
   const r = redisClient();
   await r.flushall();
@@ -92,4 +112,8 @@ export const insertTask = async (
   return (r.rows[0] as { id: string }).id;
 };
 export const taskRow = async (db: Db, id: string) =>
-  (await db.execute(sql`SELECT status, attempts, last_error FROM scheduled_tasks WHERE id = ${id}::uuid`)).rows[0] as { status: string; attempts: number; last_error: string | null };
+  (
+    await db.execute(
+      sql`SELECT status, attempts, last_error FROM scheduled_tasks WHERE id = ${id}::uuid`,
+    )
+  ).rows[0] as { status: string; attempts: number; last_error: string | null };

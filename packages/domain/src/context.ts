@@ -52,14 +52,20 @@ export const mapDbError = (e: unknown): AppError | null => {
       return appError('SLOT_TAKEN', 'This time was just taken, please pick another');
     case PG.UNIQUE_VIOLATION:
       if (pg.constraint === 'appointments_patient_doctor_day_uq')
-        return appError('DOCTOR_DAILY_LIMIT', 'You already have a visit to this doctor on that day');
+        return appError(
+          'DOCTOR_DAILY_LIMIT',
+          'You already have a visit to this doctor on that day',
+        );
       return null;
     case '22P02': // malformed uuid / enum / date that reached SQL: a client error, never a 500
     case '22007':
     case '22008':
       return appError('BAD_USER_INPUT', 'Malformed value');
     case PG.INVALID_TRANSITION:
-      return appError('INVALID_TRANSITION', 'This change is not allowed for the visit in its current status');
+      return appError(
+        'INVALID_TRANSITION',
+        'This change is not allowed for the visit in its current status',
+      );
     case PG.SERVICE_NOT_PROVIDED:
       return appError('SERVICE_NOT_PROVIDED', 'The doctor does not provide this service');
     default:
@@ -77,7 +83,12 @@ const MAX_ATTEMPTS = 5;
 const backoff = (attempt: number): Promise<void> =>
   new Promise((r) => setTimeout(r, Math.random() * 10 * attempt + 1));
 
-export type TxEnv = { readonly tx: Tx; readonly now: Date; readonly ctx: Ctx; readonly actor: Actor };
+export type TxEnv = {
+  readonly tx: Tx;
+  readonly now: Date;
+  readonly ctx: Ctx;
+  readonly actor: Actor;
+};
 
 /**
  * Runs `fn` in one transaction with actor + injected clock bound for the history trigger.

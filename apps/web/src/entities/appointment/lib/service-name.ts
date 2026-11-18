@@ -1,2 +1,4 @@
-export const serviceNameFor = (s: { nameUk: string; nameEn: string; namePl: string }, locale: string): string =>
-  locale === 'en' ? s.nameEn : locale === 'pl' ? s.namePl : s.nameUk;
+export const serviceNameFor = (
+  s: { nameUk: string; nameEn: string; namePl: string },
+  locale: string,
+): string => (locale === 'en' ? s.nameEn : locale === 'pl' ? s.namePl : s.nameUk);

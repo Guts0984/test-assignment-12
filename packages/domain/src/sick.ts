@@ -20,24 +20,41 @@ export const markDoctorSick = (
 ): Promise<Result<SickResult, AppError>> =>
   transact(ctx, actor, async (env) => {
     const { tx, now } = env;
-    if (actor.role !== 'registrar' && actor.role !== 'system') return fail('FORBIDDEN', 'Only the registrar records sick days');
+    if (actor.role !== 'registrar' && actor.role !== 'system')
+      return fail('FORBIDDEN', 'Only the registrar records sick days');
     await lockDoctorDay(tx, input.doctorId, input.localDate);
 
     // which clinic does the doctor work in that day? (the registrar must belong to it)
-    const ex = (await tx.execute(sql`SELECT kind, clinic_id FROM schedule_exceptions WHERE doctor_id = ${input.doctorId}::uuid AND local_date = ${input.localDate}::date`)).rows[0] as { kind: string; clinic_id: string | null } | undefined;
+    const ex = (
+      await tx.execute(
+        sql`SELECT kind, clinic_id FROM schedule_exceptions WHERE doctor_id = ${input.doctorId}::uuid AND local_date = ${input.localDate}::date`,
+      )
+    ).rows[0] as { kind: string; clinic_id: string | null } | undefined;
     let clinicId: string | null = null;
     if (ex?.kind === 'sick') clinicId = null;
     else if (ex && (ex.kind === 'extra_day' || ex.kind === 'custom_hours')) clinicId = ex.clinic_id;
     else if (!ex) {
-      const t = (await tx.execute(sql`SELECT clinic_id FROM schedule_templates WHERE doctor_id = ${input.doctorId}::uuid AND weekday = ${isoWeekday(input.localDate)}`)).rows[0] as { clinic_id: string } | undefined;
+      const t = (
+        await tx.execute(
+          sql`SELECT clinic_id FROM schedule_templates WHERE doctor_id = ${input.doctorId}::uuid AND weekday = ${isoWeekday(input.localDate)}`,
+        )
+      ).rows[0] as { clinic_id: string } | undefined;
       clinicId = t?.clinic_id ?? null;
     }
     if (actor.role === 'registrar') {
       let mine = clinicId === actor.clinicId;
       if (!mine && (ex?.kind === 'sick' || ex?.kind === 'vacation' || ex?.kind === 'day_off')) {
         // the day is already off: the registrar may still mark it if the doctor has visits in their clinic
-        const r = await tx.execute(sql`SELECT 1 FROM appointments WHERE doctor_id = ${input.doctorId}::uuid AND local_date = ${input.localDate}::date AND clinic_id = ${actor.clinicId ?? null}::uuid LIMIT 1`);
-        mine = r.rows.length > 0 || (await tx.execute(sql`SELECT 1 FROM schedule_templates WHERE doctor_id = ${input.doctorId}::uuid AND weekday = ${isoWeekday(input.localDate)} AND clinic_id = ${actor.clinicId ?? null}::uuid`)).rows.length > 0;
+        const r = await tx.execute(
+          sql`SELECT 1 FROM appointments WHERE doctor_id = ${input.doctorId}::uuid AND local_date = ${input.localDate}::date AND clinic_id = ${actor.clinicId ?? null}::uuid LIMIT 1`,
+        );
+        mine =
+          r.rows.length > 0 ||
+          (
+            await tx.execute(
+              sql`SELECT 1 FROM schedule_templates WHERE doctor_id = ${input.doctorId}::uuid AND weekday = ${isoWeekday(input.localDate)} AND clinic_id = ${actor.clinicId ?? null}::uuid`,
+            )
+          ).rows.length > 0;
       }
       if (!mine) return fail('NOT_FOUND', 'The doctor does not work in your clinic on that day');
     }
@@ -54,25 +71,54 @@ export const markDoctorSick = (
     // Lock order: doctor-day (held) -> patient rows -> appointment rows. Under the day lock nobody can
     // add visits to this day, so the set of patients is stable: read it, lock those patients in id
     // order, and only then lock (and re-read) the visits.
-    const affected = (await tx.execute(sql`
+    const affected = (
+      await tx.execute(sql`
       SELECT DISTINCT patient_id FROM appointments
-      WHERE doctor_id = ${input.doctorId}::uuid AND local_date = ${input.localDate}::date AND status IN ('held', 'booked')`)).rows as { patient_id: string }[];
-    await lockPatientsSorted(tx, affected.map((r) => r.patient_id));
-    const victims = (await tx.execute(sql`
+      WHERE doctor_id = ${input.doctorId}::uuid AND local_date = ${input.localDate}::date AND status IN ('held', 'booked')`)
+    ).rows as { patient_id: string }[];
+    await lockPatientsSorted(
+      tx,
+      affected.map((r) => r.patient_id),
+    );
+    const victims = (
+      await tx.execute(sql`
       SELECT id, patient_id, service_id, status, kind FROM appointments
       WHERE doctor_id = ${input.doctorId}::uuid AND local_date = ${input.localDate}::date AND status IN ('held', 'booked')
-      ORDER BY starts_at, id FOR UPDATE`)).rows as { id: string; patient_id: string; service_id: string; status: string; kind: string }[];
+      ORDER BY starts_at, id FOR UPDATE`)
+    ).rows as {
+      id: string;
+      patient_id: string;
+      service_id: string;
+      status: string;
+      kind: string;
+    }[];
 
     await setHistoryMeta(tx, now, actor, { reason: 'doctor_sick' });
     for (const v of victims) {
-      await tx.update(schema.appointments).set({ status: 'cancelled', cancelledAt: now, cancelledLate: false, holdExpiresAt: null, updatedAt: now }).where(sql`${schema.appointments.id} = ${v.id}`);
+      await tx
+        .update(schema.appointments)
+        .set({
+          status: 'cancelled',
+          cancelledAt: now,
+          cancelledLate: false,
+          holdExpiresAt: null,
+          updatedAt: now,
+        })
+        .where(sql`${schema.appointments.id} = ${v.id}`);
       await cancelTasksOf(tx, v.id, [...REMINDER_KINDS, 'hold.expire']);
       if (v.kind === 'waitlist_offer') {
-        await tx.execute(sql`UPDATE waitlist_offers SET status = 'expired', responded_at = ${now.toISOString()}::timestamptz WHERE appointment_id = ${v.id}::uuid AND status = 'pending'`);
+        await tx.execute(
+          sql`UPDATE waitlist_offers SET status = 'expired', responded_at = ${now.toISOString()}::timestamptz WHERE appointment_id = ${v.id}::uuid AND status = 'pending'`,
+        );
         await cancelTasksOf(tx, v.id, ['offer.expire', 'email.waitlist_offer']);
       }
       if (v.status !== 'booked') continue;
-      await enqueueTask(tx, { kind: 'email.sick_cancel', runAt: now, dedupeKey: `email.sick_cancel:${v.id}`, payload: { appointmentId: v.id } });
+      await enqueueTask(tx, {
+        kind: 'email.sick_cancel',
+        runAt: now,
+        dedupeKey: `email.sick_cancel:${v.id}`,
+        payload: { appointmentId: v.id },
+      });
       await notifyPatient(tx, v.patient_id, 'sick_cancel', { appointmentId: v.id });
       await tx.execute(sql`
         INSERT INTO waitlist_entries (patient_id, doctor_id, service_id, from_date, to_date, priority, created_at)

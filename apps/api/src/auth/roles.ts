@@ -36,7 +36,8 @@ export class RolesGuard implements CanActivate {
     if (roles === undefined) throw gqlError('FORBIDDEN', 'This operation is not available');
     const ctx = gql.getContext<GqlContext>();
     if (!ctx.actor) throw gqlError('UNAUTHENTICATED', 'Please sign in');
-    if (roles.length > 0 && !roles.includes(ctx.actor.role as Role)) throw gqlError('FORBIDDEN', 'You are not allowed to do this');
+    if (roles.length > 0 && !roles.includes(ctx.actor.role as Role))
+      throw gqlError('FORBIDDEN', 'You are not allowed to do this');
     return true;
   }
 }

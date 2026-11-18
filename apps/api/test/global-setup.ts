@@ -25,7 +25,9 @@ const started: { pg?: StartedPostgreSqlContainer; redis?: StartedTestContainer }
 
 export default async function setup(project: TestProject): Promise<() => Promise<void>> {
   const redisPort = await freePort();
-  started.pg = await new PostgreSqlContainer('postgres:16-alpine').withCommand(['postgres', '-c', 'max_connections=300', '-c', 'fsync=off']).start();
+  started.pg = await new PostgreSqlContainer('postgres:16-alpine')
+    .withCommand(['postgres', '-c', 'max_connections=300', '-c', 'fsync=off'])
+    .start();
   started.redis = await new GenericContainer('redis:7-alpine')
     .withCommand(['redis-server', '--save', '', '--appendonly', 'no'])
     .withExposedPorts({ container: 6379, host: redisPort })

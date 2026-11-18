@@ -11,9 +11,28 @@ import { GraphQLError, parse, type GraphQLSchema } from 'graphql';
 import type { IncomingMessage } from 'node:http';
 import type { Response } from 'express';
 import { sql } from 'drizzle-orm';
-import { DB, ENV, LIMITERS, REDIS, SCHEMA_REF, BUS, DOMAIN, POOL, TRUSTED, type GqlContext, type Services } from './infra/tokens.js';
+import {
+  DB,
+  ENV,
+  LIMITERS,
+  REDIS,
+  SCHEMA_REF,
+  BUS,
+  DOMAIN,
+  POOL,
+  TRUSTED,
+  type GqlContext,
+  type Services,
+} from './infra/tokens.js';
 import { RolesGuard } from './auth/roles.js';
-import { SESSION_COOKIE, findSessionUser, hashToken, parseCookies, toActor, type SessionUser } from './auth/sessions.js';
+import {
+  SESSION_COOKIE,
+  findSessionUser,
+  hashToken,
+  parseCookies,
+  toActor,
+  type SessionUser,
+} from './auth/sessions.js';
 import { clientIp } from './infra/ip.js';
 import { formatError, gqlError } from './infra/errors.js';
 import { checkLimits, limitsPlugin } from './infra/security.js';
@@ -21,16 +40,38 @@ import { TOPIC } from './infra/event-bus.js';
 import { createLoaders } from './loaders.js';
 import { loadVisible } from './graphql/resolvers.js';
 import {
-  AppointmentFieldResolver, AuthResolver, PatientFieldResolver, BookingResolver, CatalogResolver, NotificationResolver, OfferFieldResolver, ReportResolver, SlotResolver, StaffResolver, SubscriptionResolver,
-  WaitlistFieldResolver, WaitlistResolver,
+  AppointmentFieldResolver,
+  AuthResolver,
+  PatientFieldResolver,
+  BookingResolver,
+  CatalogResolver,
+  NotificationResolver,
+  OfferFieldResolver,
+  ReportResolver,
+  SlotResolver,
+  StaffResolver,
+  SubscriptionResolver,
+  WaitlistFieldResolver,
+  WaitlistResolver,
 } from './graphql/resolvers.js';
 import type { ApiEnv } from './env.js';
 import type { Db } from '@clinic/db';
 import type { Redis } from 'ioredis';
 
 export const RESOLVERS = [
-  AuthResolver, PatientFieldResolver, CatalogResolver, SlotResolver, AppointmentFieldResolver, BookingResolver, WaitlistFieldResolver, OfferFieldResolver, WaitlistResolver, NotificationResolver, StaffResolver,
-  ReportResolver, SubscriptionResolver,
+  AuthResolver,
+  PatientFieldResolver,
+  CatalogResolver,
+  SlotResolver,
+  AppointmentFieldResolver,
+  BookingResolver,
+  WaitlistFieldResolver,
+  OfferFieldResolver,
+  WaitlistResolver,
+  NotificationResolver,
+  StaffResolver,
+  ReportResolver,
+  SubscriptionResolver,
 ];
 
 const log = (msg: string, extra?: Record<string, unknown>): void => {
@@ -39,9 +80,14 @@ const log = (msg: string, extra?: Record<string, unknown>): void => {
 
 // graphql-ws checks `instanceof GraphQLError` against ITS copy of graphql (ESM or CJS build, depending
 // on how it was loaded). Pick the class it accepts, so rejections reach the client as proper errors.
-const cjsGraphQL = createRequire(import.meta.url)('graphql') as { GraphQLError: typeof GraphQLError };
-const wsErrorClass: typeof GraphQLError = [GraphQLError, cjsGraphQL.GraphQLError].find((C) => areGraphQLErrors([new C('probe')])) ?? GraphQLError;
-const wsError = (code: string, message: string): GraphQLError => new wsErrorClass(message, { extensions: { code } });
+const cjsGraphQL = createRequire(import.meta.url)('graphql') as {
+  GraphQLError: typeof GraphQLError;
+};
+const wsErrorClass: typeof GraphQLError =
+  [GraphQLError, cjsGraphQL.GraphQLError].find((C) => areGraphQLErrors([new C('probe')])) ??
+  GraphQLError;
+const wsError = (code: string, message: string): GraphQLError =>
+  new wsErrorClass(message, { extensions: { code } });
 
 export type SchemaRef = { current: GraphQLSchema | null };
 
@@ -66,7 +112,10 @@ export class ServicesModule {
 
 @Controller()
 export class HealthController {
-  constructor(@Inject(DB) private readonly db: Db, @Inject(REDIS) private readonly redis: Redis) {}
+  constructor(
+    @Inject(DB) private readonly db: Db,
+    @Inject(REDIS) private readonly redis: Redis,
+  ) {}
 
   /** Liveness: the process answers. */
   @Get('health')
@@ -77,26 +126,51 @@ export class HealthController {
   /** Readiness: Postgres and Redis answer within 2 s. */
   @Get('ready')
   async ready(@Res() res: Response): Promise<void> {
-    const within = <T>(p: Promise<T>): Promise<T> => Promise.race([p, new Promise<T>((_, rej) => setTimeout(() => rej(new Error('timeout')), 2000).unref())]);
+    const within = <T>(p: Promise<T>): Promise<T> =>
+      Promise.race([
+        p,
+        new Promise<T>((_, rej) => setTimeout(() => rej(new Error('timeout')), 2000).unref()),
+      ]);
     const checks = { postgres: false, redis: false };
     await Promise.all([
-      within(this.db.execute(sql`SELECT 1`)).then(() => { checks.postgres = true; }).catch(() => undefined),
-      within(this.redis.ping()).then(() => { checks.redis = true; }).catch(() => undefined),
+      within(this.db.execute(sql`SELECT 1`))
+        .then(() => {
+          checks.postgres = true;
+        })
+        .catch(() => undefined),
+      within(this.redis.ping())
+        .then(() => {
+          checks.redis = true;
+        })
+        .catch(() => undefined),
     ]);
-    res.status(checks.postgres && checks.redis ? 200 : 503).json({ status: checks.postgres && checks.redis ? 'ready' : 'degraded', ...checks });
+    res
+      .status(checks.postgres && checks.redis ? 200 : 503)
+      .json({ status: checks.postgres && checks.redis ? 'ready' : 'degraded', ...checks });
   }
 }
 
-type WsExtra = { socket?: { close: (code?: number, reason?: string) => void }; request: IncomingMessage; session?: { ip: string; user: SessionUser | null; token: string | null } };
+type WsExtra = {
+  socket?: { close: (code?: number, reason?: string) => void };
+  request: IncomingMessage;
+  session?: { ip: string; user: SessionUser | null; token: string | null };
+};
 
 @Module({})
 export class ApiModule {
   static register(s: Services, schemaRef: SchemaRef): DynamicModule {
     const env: ApiEnv = s.env;
-    const limits = { maxDepth: env.GQL_MAX_DEPTH, maxComplexity: env.GQL_MAX_COMPLEXITY, maxFields: env.GQL_MAX_FIELDS };
+    const limits = {
+      maxDepth: env.GQL_MAX_DEPTH,
+      maxComplexity: env.GQL_MAX_COMPLEXITY,
+      maxFields: env.GQL_MAX_FIELDS,
+    };
     const wsPerIp = new Map<string, number>();
     // open sockets by session (token hash): a sign-out must not leave a live stream behind
-    const socketsBySession = new Map<string, { token: string; sockets: Set<NonNullable<WsExtra['socket']>> }>();
+    const socketsBySession = new Map<
+      string,
+      { token: string; sockets: Set<NonNullable<WsExtra['socket']>> }
+    >();
     const closeSession = (hash: string): void => {
       const entry = socketsBySession.get(hash);
       if (!entry) return;
@@ -105,20 +179,46 @@ export class ApiModule {
     };
     // sign-out on any replica arrives through the bus (Redis) on all of them
     void s.bus.pubsub.subscribe(TOPIC, (e: unknown) => {
-      if (e && typeof e === 'object' && (e as { type?: string }).type === 'session_revoked') closeSession(String((e as { tokenHash?: unknown }).tokenHash));
+      if (e && typeof e === 'object' && (e as { type?: string }).type === 'session_revoked')
+        closeSession(String((e as { tokenHash?: unknown }).tokenHash));
     });
     // expiry (and revocations whose bus message was lost) are caught by a periodic re-check
     const sweep = setInterval(() => {
       for (const [hash, entry] of [...socketsBySession]) {
-        void findSessionUser(s.db, entry.token, s.domain.now()).then((u) => { if (!u) closeSession(hash); }).catch(() => undefined);
+        void findSessionUser(s.db, entry.token, s.domain.now())
+          .then((u) => {
+            if (!u) closeSession(hash);
+          })
+          .catch(() => undefined);
       }
     }, 15_000);
     sweep.unref();
-    const baseContext = (ip: string, user: SessionUser | null, token: string | null, transport: 'http' | 'ws'): Omit<GqlContext, 'req' | 'res'> => {
+    const baseContext = (
+      ip: string,
+      user: SessionUser | null,
+      token: string | null,
+      transport: 'http' | 'ws',
+    ): Omit<GqlContext, 'req' | 'res'> => {
       const actor = toActor(user);
-      return { ip, user, token, actor, transport, loaders: createLoaders(s.db, actor), visible: (id) => loadVisible(s.db, id, actor) };
+      return {
+        ip,
+        user,
+        token,
+        actor,
+        transport,
+        loaders: createLoaders(s.db, actor),
+        visible: (id) => loadVisible(s.db, id, actor),
+      };
     };
-    const ipOf = (req: IncomingMessage): string => clientIp(req.socket.remoteAddress, (h) => { const v = req.headers[h]; return Array.isArray(v) ? v[0] : v; }, s.trusted);
+    const ipOf = (req: IncomingMessage): string =>
+      clientIp(
+        req.socket.remoteAddress,
+        (h) => {
+          const v = req.headers[h];
+          return Array.isArray(v) ? v[0] : v;
+        },
+        s.trusted,
+      );
 
     return {
       module: ApiModule,
@@ -134,20 +234,37 @@ export class ApiModule {
           hideSchemaDetailsFromClientErrors: env.NODE_ENV === 'production',
           includeStacktraceInErrorResponses: false,
           plugins: [
-            env.NODE_ENV === 'production' ? ApolloServerPluginLandingPageDisabled() : ApolloServerPluginLandingPageLocalDefault({ embed: false, includeCookies: true }),
+            env.NODE_ENV === 'production'
+              ? ApolloServerPluginLandingPageDisabled()
+              : ApolloServerPluginLandingPageLocalDefault({ embed: false, includeCookies: true }),
             limitsPlugin(() => schemaRef.current, limits, s.limiters.cost),
           ],
           formatError: (formatted, original) => formatError(formatted, original, log),
-          context: async ({ req, res, extra }: { req?: IncomingMessage & { headers: Record<string, string | string[] | undefined> }; res?: Response; extra?: WsExtra }): Promise<GqlContext> => {
+          context: async ({
+            req,
+            res,
+            extra,
+          }: {
+            req?: IncomingMessage & { headers: Record<string, string | string[] | undefined> };
+            res?: Response;
+            extra?: WsExtra;
+          }): Promise<GqlContext> => {
             if (extra?.session) {
               // WebSocket: identity was established once when the connection opened
-              return { ...baseContext(extra.session.ip, extra.session.user, extra.session.token, 'ws') } as GqlContext;
+              return {
+                ...baseContext(extra.session.ip, extra.session.user, extra.session.token, 'ws'),
+              } as GqlContext;
             }
             if (!req) throw gqlError('INTERNAL_SERVER_ERROR', 'No request');
             const ip = ipOf(req);
-            const token = parseCookies(req.headers['cookie'] as string | undefined)[SESSION_COOKIE] ?? null;
+            const token =
+              parseCookies(req.headers['cookie'] as string | undefined)[SESSION_COOKIE] ?? null;
             const user = await findSessionUser(s.db, token ?? undefined, s.domain.now());
-            return { ...baseContext(ip, user, token, 'http'), req: req as never, ...(res ? { res } : {}) } as GqlContext;
+            return {
+              ...baseContext(ip, user, token, 'http'),
+              req: req as never,
+              ...(res ? { res } : {}),
+            } as GqlContext;
           },
           subscriptions: {
             'graphql-ws': {
@@ -161,7 +278,7 @@ export class ApiModule {
                 const n = (wsPerIp.get(ip) ?? 0) + 1;
                 if (n > env.WS_MAX_CONN_PER_IP) return false; // refused: too many sockets from one address
                 wsPerIp.set(ip, n);
-                const token = parseCookies(req.headers['cookie']) [SESSION_COOKIE] ?? null;
+                const token = parseCookies(req.headers['cookie'])[SESSION_COOKIE] ?? null;
                 const user = await findSessionUser(s.db, token ?? undefined, s.domain.now());
                 ctx.extra.session = { ip, user, token };
                 if (user && token && ctx.extra.socket) {
@@ -187,19 +304,45 @@ export class ApiModule {
                 else wsPerIp.set(ip, n);
               },
               onSubscribe: async (c: unknown, _id: string, p: unknown) => {
-                const ctx = c as { subscriptions: Map<string, unknown> | Record<string, unknown>; extra: WsExtra };
+                const ctx = c as {
+                  subscriptions: Map<string, unknown> | Record<string, unknown>;
+                  extra: WsExtra;
+                };
                 // every subscribe message costs a request from the same per-IP budget as HTTP
-                const rate = await s.limiters.wsSubscribe.consume(ctx.extra.session?.ip ?? 'unknown');
+                const rate = await s.limiters.wsSubscribe.consume(
+                  ctx.extra.session?.ip ?? 'unknown',
+                );
                 if (!rate.ok) return [wsError('RATE_LIMITED', 'Too many subscriptions, slow down')];
-                if (!(await s.limiters.global.consume(ctx.extra.session?.ip ?? 'unknown')).ok) return [wsError('RATE_LIMITED', 'Too many requests, slow down')];
-                const payload = p as { query?: string; variables?: Record<string, unknown> | null; operationName?: string | null };
-                const open = ctx.subscriptions instanceof Map ? ctx.subscriptions.size : Object.keys(ctx.subscriptions).length;
-                if (open >= env.WS_MAX_SUBS_PER_CONN) return [wsError('RATE_LIMITED', 'Too many subscriptions on this connection')];
+                if (!(await s.limiters.global.consume(ctx.extra.session?.ip ?? 'unknown')).ok)
+                  return [wsError('RATE_LIMITED', 'Too many requests, slow down')];
+                const payload = p as {
+                  query?: string;
+                  variables?: Record<string, unknown> | null;
+                  operationName?: string | null;
+                };
+                const open =
+                  ctx.subscriptions instanceof Map
+                    ? ctx.subscriptions.size
+                    : Object.keys(ctx.subscriptions).length;
+                if (open >= env.WS_MAX_SUBS_PER_CONN)
+                  return [wsError('RATE_LIMITED', 'Too many subscriptions on this connection')];
                 const schema = schemaRef.current;
-                if (!schema || typeof payload.query !== 'string' || payload.query.length > env.BODY_LIMIT_KB * 1024) return [wsError('BAD_USER_INPUT', 'Invalid subscription')];
+                if (
+                  !schema ||
+                  typeof payload.query !== 'string' ||
+                  payload.query.length > env.BODY_LIMIT_KB * 1024
+                )
+                  return [wsError('BAD_USER_INPUT', 'Invalid subscription')];
                 try {
-                  const e = checkLimits(schema, parse(payload.query), payload.variables ?? undefined, payload.operationName, limits);
-                  if (e) return [wsError(String((e.extensions as { code?: string }).code), e.message)];
+                  const e = checkLimits(
+                    schema,
+                    parse(payload.query),
+                    payload.variables ?? undefined,
+                    payload.operationName,
+                    limits,
+                  );
+                  if (e)
+                    return [wsError(String((e.extensions as { code?: string }).code), e.message)];
                 } catch (e) {
                   return [wsError('GRAPHQL_PARSE_FAILED', String((e as Error).message))];
                 }
@@ -210,7 +353,11 @@ export class ApiModule {
         }),
       ],
       controllers: [HealthController],
-      providers: [{ provide: APP_GUARD, useClass: RolesGuard }, { provide: APP_FILTER, useClass: GraphqlExceptionsFilter }, ...RESOLVERS],
+      providers: [
+        { provide: APP_GUARD, useClass: RolesGuard },
+        { provide: APP_FILTER, useClass: GraphqlExceptionsFilter },
+        ...RESOLVERS,
+      ],
     };
   }
 }

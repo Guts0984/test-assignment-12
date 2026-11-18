@@ -46,21 +46,135 @@ export const runSeed = async (pool: pg.Pool, env: DbEnv): Promise<SeedResult> =>
     console.log(`[seed] generated in ${Date.now() - t0} ms`, data.stats);
 
     await client.query('ALTER TABLE appointments DISABLE TRIGGER appointments_3_history');
-    await copyRows(client, 'clinics', ['id', 'code', 'city', 'time_zone', 'currency'], data.clinics);
+    await copyRows(
+      client,
+      'clinics',
+      ['id', 'code', 'city', 'time_zone', 'currency'],
+      data.clinics,
+    );
     await copyRows(client, 'rooms', ['id', 'clinic_id', 'kind', 'name'], data.rooms);
-    await copyRows(client, 'services', ['id', 'code', 'specialty', 'name_uk', 'name_en', 'name_pl', 'duration_min', 'needs_ultrasound'], data.services);
-    await copyRows(client, 'clinic_services', ['clinic_id', 'service_id', 'price_minor'], data.clinicServices);
+    await copyRows(
+      client,
+      'services',
+      [
+        'id',
+        'code',
+        'specialty',
+        'name_uk',
+        'name_en',
+        'name_pl',
+        'duration_min',
+        'needs_ultrasound',
+      ],
+      data.services,
+    );
+    await copyRows(
+      client,
+      'clinic_services',
+      ['clinic_id', 'service_id', 'price_minor'],
+      data.clinicServices,
+    );
     await copyRows(client, 'doctors', ['id', 'full_name', 'specialty'], data.doctors);
     await copyRows(client, 'doctor_services', ['doctor_id', 'service_id'], data.doctorServices);
-    await copyRows(client, 'users', ['id', 'email', 'password_hash', 'role', 'clinic_id', 'doctor_id'], data.users);
-    await copyRows(client, 'patients', ['id', 'user_id', 'full_name', 'phone', 'email', 'locale', 'online_booking_blocked_until', 'created_at'], data.patients);
-    await copyRows(client, 'schedule_templates', ['id', 'doctor_id', 'clinic_id', 'weekday', 'start_local', 'end_local', 'break_start_local', 'break_end_local'], data.templates);
-    await copyRows(client, 'schedule_exceptions', ['id', 'doctor_id', 'local_date', 'kind', 'clinic_id', 'start_local', 'end_local', 'break_start_local', 'break_end_local'], data.exceptions);
+    await copyRows(
+      client,
+      'users',
+      ['id', 'email', 'password_hash', 'role', 'clinic_id', 'doctor_id'],
+      data.users,
+    );
+    await copyRows(
+      client,
+      'patients',
+      [
+        'id',
+        'user_id',
+        'full_name',
+        'phone',
+        'email',
+        'locale',
+        'online_booking_blocked_until',
+        'created_at',
+      ],
+      data.patients,
+    );
+    await copyRows(
+      client,
+      'schedule_templates',
+      [
+        'id',
+        'doctor_id',
+        'clinic_id',
+        'weekday',
+        'start_local',
+        'end_local',
+        'break_start_local',
+        'break_end_local',
+      ],
+      data.templates,
+    );
+    await copyRows(
+      client,
+      'schedule_exceptions',
+      [
+        'id',
+        'doctor_id',
+        'local_date',
+        'kind',
+        'clinic_id',
+        'start_local',
+        'end_local',
+        'break_start_local',
+        'break_end_local',
+      ],
+      data.exceptions,
+    );
     await copyRows(client, 'appointments', rowsOfAppointmentColumns, data.appointments);
-    await copyRows(client, 'appointment_events', ['appointment_id', 'at', 'actor_user_id', 'actor_role', 'type', 'from_status', 'to_status', 'old_starts_at', 'new_starts_at', 'late', 'reason'], data.events);
-    await copyRows(client, 'waitlist_entries', ['id', 'patient_id', 'doctor_id', 'service_id', 'from_date', 'to_date', 'priority', 'status', 'created_at'], data.waitlistEntries);
-    await copyRows(client, 'waitlist_offers', ['entry_id', 'appointment_id', 'expires_at', 'status', 'created_at', 'responded_at'], data.waitlistOffers);
-    await copyRows(client, 'penalty_events', ['patient_id', 'kind', 'appointment_id', 'at'], data.penalties);
+    await copyRows(
+      client,
+      'appointment_events',
+      [
+        'appointment_id',
+        'at',
+        'actor_user_id',
+        'actor_role',
+        'type',
+        'from_status',
+        'to_status',
+        'old_starts_at',
+        'new_starts_at',
+        'late',
+        'reason',
+      ],
+      data.events,
+    );
+    await copyRows(
+      client,
+      'waitlist_entries',
+      [
+        'id',
+        'patient_id',
+        'doctor_id',
+        'service_id',
+        'from_date',
+        'to_date',
+        'priority',
+        'status',
+        'created_at',
+      ],
+      data.waitlistEntries,
+    );
+    await copyRows(
+      client,
+      'waitlist_offers',
+      ['entry_id', 'appointment_id', 'expires_at', 'status', 'created_at', 'responded_at'],
+      data.waitlistOffers,
+    );
+    await copyRows(
+      client,
+      'penalty_events',
+      ['patient_id', 'kind', 'appointment_id', 'at'],
+      data.penalties,
+    );
     await client.query('ALTER TABLE appointments ENABLE TRIGGER appointments_3_history');
     await client.query('INSERT INTO seed_runs (name) VALUES ($1)', [SEED_NAME]);
     await client.query('COMMIT');

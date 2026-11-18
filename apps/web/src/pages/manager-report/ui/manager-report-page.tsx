@@ -21,11 +21,29 @@ export const ManagerReportPage = () => {
     <>
       <PageTitle>{t('title')}</PageTitle>
       <form className="mb-6 grid gap-3 sm:grid-cols-3" onSubmit={(e) => e.preventDefault()}>
-        <TextField label={t('from')} type="date" value={from} onChange={(e) => setQ({ from: e.target.value, to })} />
-        <TextField label={t('to')} type="date" value={to} onChange={(e) => setQ({ to: e.target.value, from })} />
-        <SelectField label={t('clinic')} value={q.clinic} onChange={(e) => setQ({ clinic: e.target.value, from, to })}>
+        <TextField
+          label={t('from')}
+          type="date"
+          value={from}
+          onChange={(e) => setQ({ from: e.target.value, to })}
+        />
+        <TextField
+          label={t('to')}
+          type="date"
+          value={to}
+          onChange={(e) => setQ({ to: e.target.value, from })}
+        />
+        <SelectField
+          label={t('clinic')}
+          value={q.clinic}
+          onChange={(e) => setQ({ clinic: e.target.value, from, to })}
+        >
           <option value="">{t('allClinics')}</option>
-          {clinics.map((c) => <option key={c.id} value={c.id}>{c.city}</option>)}
+          {clinics.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.city}
+            </option>
+          ))}
         </SelectField>
       </form>
       <ReportPanel from={from} to={to} clinicId={q.clinic} />

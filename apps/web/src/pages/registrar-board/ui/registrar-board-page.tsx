@@ -20,8 +20,16 @@ export const RegistrarBoardPage = () => {
   const date = q.date || localDateOf(new Date(), clinic.timeZone);
   return (
     <>
-      <PageTitle>{t('boardTitle')} · {clinic.city}</PageTitle>
-      <TextField className="mb-4 max-w-xs" label={t('date')} type="date" value={date} onChange={(e) => setQ({ date: e.target.value })} />
+      <PageTitle>
+        {t('boardTitle')} · {clinic.city}
+      </PageTitle>
+      <TextField
+        className="mb-4 max-w-xs"
+        label={t('date')}
+        type="date"
+        value={date}
+        onChange={(e) => setQ({ date: e.target.value })}
+      />
       <DayBoard clinicId={me.clinicId} date={date} />
     </>
   );

@@ -14,7 +14,8 @@ export const normalizeIp = (raw: string | undefined | null): string | null => {
   if (!raw) return null;
   try {
     let a = ipaddr.parse(raw.trim());
-    if (a.kind() === 'ipv6' && (a as ipaddr.IPv6).isIPv4MappedAddress()) a = (a as ipaddr.IPv6).toIPv4Address();
+    if (a.kind() === 'ipv6' && (a as ipaddr.IPv6).isIPv4MappedAddress())
+      a = (a as ipaddr.IPv6).toIPv4Address();
     return a.toNormalizedString();
   } catch {
     return null;
@@ -39,12 +40,19 @@ export type HeaderGetter = (name: string) => string | undefined;
  * Behind a trusted proxy we walk X-Forwarded-For from the right and take the first address that is
  * not itself a trusted proxy.
  */
-export const clientIp = (remote: string | undefined, header: HeaderGetter, trusted: Cidr[]): string => {
+export const clientIp = (
+  remote: string | undefined,
+  header: HeaderGetter,
+  trusted: Cidr[],
+): string => {
   const peer = normalizeIp(remote) ?? 'unknown';
   if (peer === 'unknown' || !inCidrs(peer, trusted)) return peer;
   const xff = header('x-forwarded-for');
   if (xff) {
-    const hops = xff.split(',').map((h) => normalizeIp(h)).filter((h): h is string => h !== null);
+    const hops = xff
+      .split(',')
+      .map((h) => normalizeIp(h))
+      .filter((h): h is string => h !== null);
     for (let i = hops.length - 1; i >= 0; i--) {
       const hop = hops[i] as string;
       if (!inCidrs(hop, trusted)) return hop;

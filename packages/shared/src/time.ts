@@ -52,15 +52,13 @@ export const offsetMinutesAt = (instant: Date, tz: string): number => {
 
 const pad = (n: number): string => String(n).padStart(2, '0');
 
-export const instantToLocal = (
-  instant: Date,
-  tz: string,
-): { date: LocalDate; time: LocalTime } => {
+export const instantToLocal = (instant: Date, tz: string): { date: LocalDate; time: LocalTime } => {
   const p = partsAt(instant.getTime(), tz);
   return { date: `${p.y}-${pad(p.mo)}-${pad(p.d)}`, time: `${pad(p.h)}:${pad(p.mi)}` };
 };
 
-export const localDateOf = (instant: Date, tz: string): LocalDate => instantToLocal(instant, tz).date;
+export const localDateOf = (instant: Date, tz: string): LocalDate =>
+  instantToLocal(instant, tz).date;
 
 const parseDate = (date: LocalDate): [number, number, number] => {
   const [y, m, d] = date.split('-').map(Number);
@@ -139,10 +137,7 @@ export const timeOfMinutes = (minutes: number): LocalTime =>
  * by an hour across DST). If that wall time does not exist, fall back to start − 24h.
  * 2h reminder = absolute start − 2h.
  */
-export const reminderInstants = (
-  startsAt: Date,
-  tz: string,
-): { h24: Date; h2: Date } => {
+export const reminderInstants = (startsAt: Date, tz: string): { h24: Date; h2: Date } => {
   const local = instantToLocal(startsAt, tz);
   const prev = localToInstant(addDays(local.date, -1), local.time, tz, 'earlier');
   return {

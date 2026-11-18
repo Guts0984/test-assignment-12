@@ -44,21 +44,35 @@ describe('seed shape', () => {
     expect(await count('rooms')).toBe(3);
   });
   it('3 services need the ultrasound room, durations are 15..90 in steps of 15', async () => {
-    const r = await q<{ u: number; bad: number }>(sql`SELECT count(*) FILTER (WHERE needs_ultrasound)::int AS u, count(*) FILTER (WHERE duration_min NOT BETWEEN 15 AND 90 OR duration_min % 15 <> 0)::int AS bad FROM services`);
+    const r = await q<{ u: number; bad: number }>(
+      sql`SELECT count(*) FILTER (WHERE needs_ultrasound)::int AS u, count(*) FILTER (WHERE duration_min NOT BETWEEN 15 AND 90 OR duration_min % 15 <> 0)::int AS bad FROM services`,
+    );
     expect(r[0]).toEqual({ u: 3, bad: 0 });
   });
   it('some doctors work in two clinics on different days, none in two clinics on one day', async () => {
-    const two = await q<{ n: number }>(sql`SELECT count(*)::int AS n FROM (SELECT doctor_id FROM schedule_templates GROUP BY doctor_id HAVING count(DISTINCT clinic_id) > 1) x`);
+    const two = await q<{ n: number }>(
+      sql`SELECT count(*)::int AS n FROM (SELECT doctor_id FROM schedule_templates GROUP BY doctor_id HAVING count(DISTINCT clinic_id) > 1) x`,
+    );
     expect(two[0]?.n).toBeGreaterThan(0);
-    const dup = await q<{ n: number }>(sql`SELECT count(*)::int AS n FROM (SELECT doctor_id, weekday FROM schedule_templates GROUP BY 1,2 HAVING count(*) > 1) x`);
+    const dup = await q<{ n: number }>(
+      sql`SELECT count(*)::int AS n FROM (SELECT doctor_id, weekday FROM schedule_templates GROUP BY 1,2 HAVING count(*) > 1) x`,
+    );
     expect(dup[0]?.n).toBe(0);
   });
   it('has exceptions of every kind', async () => {
     const kinds = await q<{ kind: string }>(sql`SELECT DISTINCT kind FROM schedule_exceptions`);
-    expect(kinds.map((k) => k.kind).sort()).toEqual(['custom_hours', 'day_off', 'extra_day', 'sick', 'vacation']);
+    expect(kinds.map((k) => k.kind).sort()).toEqual([
+      'custom_hours',
+      'day_off',
+      'extra_day',
+      'sick',
+      'vacation',
+    ]);
   });
   it('covers the past window and 30 days ahead, but not beyond', async () => {
-    const r = await q<{ lo: string; hi: string }>(sql`SELECT min(starts_at) AS lo, max(starts_at) AS hi FROM appointments`);
+    const r = await q<{ lo: string; hi: string }>(
+      sql`SELECT min(starts_at) AS lo, max(starts_at) AS hi FROM appointments`,
+    );
     const lo = new Date(String(r[0]?.lo)).getTime();
     const hi = new Date(String(r[0]?.hi)).getTime();
     const now = new Date(NOW).getTime();
@@ -70,7 +84,9 @@ describe('seed shape', () => {
 
 describe('seed obeys the business rules (not just the constraints)', () => {
   it('no patient has more than 3 future live visits', async () => {
-    const r = await q<{ m: number | null }>(sql`SELECT max(c)::int AS m FROM (SELECT count(*) c FROM appointments WHERE status IN ('held','booked','checked_in') AND starts_at > ${NOW}::timestamptz GROUP BY patient_id) x`);
+    const r = await q<{ m: number | null }>(
+      sql`SELECT max(c)::int AS m FROM (SELECT count(*) c FROM appointments WHERE status IN ('held','booked','checked_in') AND starts_at > ${NOW}::timestamptz GROUP BY patient_id) x`,
+    );
     expect(Number(r[0]?.m ?? 0)).toBeLessThanOrEqual(3);
   });
   it('live visits sit inside the working hours, outside the break, on working days', async () => {
@@ -97,7 +113,9 @@ describe('seed obeys the business rules (not just the constraints)', () => {
     expect(bad[0]?.n).toBe(0);
   });
   it('nothing live on vacation / sick / day-off dates', async () => {
-    const r = await q<{ n: number }>(sql`SELECT count(*)::int AS n FROM appointments a JOIN schedule_exceptions e ON e.doctor_id = a.doctor_id AND e.local_date = a.local_date WHERE a.status <> 'cancelled' AND e.kind IN ('vacation','sick','day_off')`);
+    const r = await q<{ n: number }>(
+      sql`SELECT count(*)::int AS n FROM appointments a JOIN schedule_exceptions e ON e.doctor_id = a.doctor_id AND e.local_date = a.local_date WHERE a.status <> 'cancelled' AND e.kind IN ('vacation','sick','day_off')`,
+    );
     expect(r[0]?.n).toBe(0);
   });
   it('rooms are set exactly for ultrasound services; prep time and currency are right', async () => {
@@ -111,15 +129,24 @@ describe('seed obeys the business rules (not just the constraints)', () => {
     expect(r[0]?.uzi).toBeGreaterThan(0);
   });
   it('prices match clinic_services; money is integers in the clinic currency', async () => {
-    const r = await q<{ n: number }>(sql`SELECT count(*)::int AS n FROM appointments a JOIN clinic_services cs ON cs.clinic_id = a.clinic_id AND cs.service_id = a.service_id WHERE a.price_minor <> cs.price_minor`);
+    const r = await q<{ n: number }>(
+      sql`SELECT count(*)::int AS n FROM appointments a JOIN clinic_services cs ON cs.clinic_id = a.clinic_id AND cs.service_id = a.service_id WHERE a.price_minor <> cs.price_minor`,
+    );
     expect(r[0]?.n).toBe(0);
   });
   it('late-cancel flag is consistent with the 24h rule', async () => {
-    const r = await q<{ n: number }>(sql`SELECT count(*)::int AS n FROM appointments WHERE status = 'cancelled' AND booked_at IS NOT NULL AND cancelled_late <> (starts_at - cancelled_at < interval '24 hours')`);
+    const r = await q<{ n: number }>(
+      sql`SELECT count(*)::int AS n FROM appointments WHERE status = 'cancelled' AND booked_at IS NOT NULL AND cancelled_late <> (starts_at - cancelled_at < interval '24 hours')`,
+    );
     expect(r[0]?.n).toBe(0);
   });
   it('no live visit is a hold; every cancelled row has a cancel time; time travel is impossible', async () => {
-    const r = await q<{ held: number; noCancelTime: number; cancelBeforeBook: number; bookedAfterNow: number }>(sql`
+    const r = await q<{
+      held: number;
+      noCancelTime: number;
+      cancelBeforeBook: number;
+      bookedAfterNow: number;
+    }>(sql`
       SELECT count(*) FILTER (WHERE status = 'held')::int AS held,
              count(*) FILTER (WHERE status = 'cancelled' AND cancelled_at IS NULL)::int AS "noCancelTime",
              count(*) FILTER (WHERE cancelled_at < booked_at)::int AS "cancelBeforeBook",
@@ -162,15 +189,27 @@ describe('history and penalties', () => {
     expect(missed[0]?.n).toBe(0);
   });
   it('waitlist offers point at real appointments of kind waitlist_offer', async () => {
-    const r = await q<{ n: number }>(sql`SELECT count(*)::int AS n FROM waitlist_offers o JOIN appointments a ON a.id = o.appointment_id WHERE a.kind <> 'waitlist_offer'`);
+    const r = await q<{ n: number }>(
+      sql`SELECT count(*)::int AS n FROM waitlist_offers o JOIN appointments a ON a.id = o.appointment_id WHERE a.kind <> 'waitlist_offer'`,
+    );
     expect(r[0]?.n).toBe(0);
   });
 });
 
 describe('logins', () => {
   it('every role has a login with the documented password, and a wrong one fails', async () => {
-    for (const email of ['manager@demo.local', 'registrar.kyiv@demo.local', 'registrar.lviv@demo.local', 'registrar.warsaw@demo.local', 'doctor01@demo.local', 'doctor12@demo.local', 'patient00001@demo.local']) {
-      const u = await q<{ password_hash: string }>(sql`SELECT password_hash FROM users WHERE email = ${email}`);
+    for (const email of [
+      'manager@demo.local',
+      'registrar.kyiv@demo.local',
+      'registrar.lviv@demo.local',
+      'registrar.warsaw@demo.local',
+      'doctor01@demo.local',
+      'doctor12@demo.local',
+      'patient00001@demo.local',
+    ]) {
+      const u = await q<{ password_hash: string }>(
+        sql`SELECT password_hash FROM users WHERE email = ${email}`,
+      );
       expect(u, email).toHaveLength(1);
       expect(await verify(u[0]?.password_hash as string, PASSWORD), email).toBe(true);
       expect(await verify(u[0]?.password_hash as string, 'wrong-password'), email).toBe(false);
@@ -184,7 +223,9 @@ describe('logins', () => {
     }
   });
   it('doctor and registrar accounts are linked to their doctor / clinic', async () => {
-    const r = await q<{ bad: number }>(sql`SELECT count(*)::int AS bad FROM users WHERE (role = 'doctor' AND doctor_id IS NULL) OR (role = 'registrar' AND clinic_id IS NULL) OR (role IN ('patient','manager') AND (doctor_id IS NOT NULL OR clinic_id IS NOT NULL))`);
+    const r = await q<{ bad: number }>(
+      sql`SELECT count(*)::int AS bad FROM users WHERE (role = 'doctor' AND doctor_id IS NULL) OR (role = 'registrar' AND clinic_id IS NULL) OR (role IN ('patient','manager') AND (doctor_id IS NOT NULL OR clinic_id IS NOT NULL))`,
+    );
     expect(r[0]?.bad).toBe(0);
   });
 });
@@ -201,9 +242,15 @@ describe('seeding is safe to repeat, race, and fail', () => {
     const t2 = await createTestDb();
     try {
       const env = envFor(t2.url, { SEED_APPOINTMENTS: '800', SEED_PATIENTS: '200' });
-      const [a, b, c] = await Promise.all([runSeed(t2.pool, env), runSeed(t2.pool, env), runSeed(t2.pool, env)]);
+      const [a, b, c] = await Promise.all([
+        runSeed(t2.pool, env),
+        runSeed(t2.pool, env),
+        runSeed(t2.pool, env),
+      ]);
       expect([a, b, c].filter((r) => !r.skipped)).toHaveLength(1);
-      const n = (await t2.db.execute(sql`SELECT count(*)::int AS n FROM appointments`)).rows[0] as { n: number };
+      const n = (await t2.db.execute(sql`SELECT count(*)::int AS n FROM appointments`)).rows[0] as {
+        n: number;
+      };
       expect(n.n).toBe(800);
     } finally {
       await t2.drop();
@@ -213,12 +260,24 @@ describe('seeding is safe to repeat, race, and fail', () => {
   it('a failure half way rolls everything back and leaves no marker', async () => {
     const t3 = await createTestDb();
     try {
-      await t3.db.execute(sql`INSERT INTO clinics (code, city, time_zone, currency) VALUES ('kyiv', 'x', 'Europe/Kyiv', 'UAH')`);
-      await expect(runSeed(t3.pool, envFor(t3.url, { SEED_APPOINTMENTS: '300', SEED_PATIENTS: '100' }))).rejects.toThrow();
-      const r = (await t3.db.execute(sql`SELECT (SELECT count(*) FROM seed_runs)::int AS marker, (SELECT count(*) FROM patients)::int AS patients, (SELECT count(*) FROM appointments)::int AS appts, (SELECT count(*) FROM clinics)::int AS clinics`)).rows[0];
+      await t3.db.execute(
+        sql`INSERT INTO clinics (code, city, time_zone, currency) VALUES ('kyiv', 'x', 'Europe/Kyiv', 'UAH')`,
+      );
+      await expect(
+        runSeed(t3.pool, envFor(t3.url, { SEED_APPOINTMENTS: '300', SEED_PATIENTS: '100' })),
+      ).rejects.toThrow();
+      const r = (
+        await t3.db.execute(
+          sql`SELECT (SELECT count(*) FROM seed_runs)::int AS marker, (SELECT count(*) FROM patients)::int AS patients, (SELECT count(*) FROM appointments)::int AS appts, (SELECT count(*) FROM clinics)::int AS clinics`,
+        )
+      ).rows[0];
       expect(r).toEqual({ marker: 0, patients: 0, appts: 0, clinics: 1 });
       // and the history trigger is still enabled afterwards
-      const tg = (await t3.db.execute(sql`SELECT tgenabled FROM pg_trigger WHERE tgname = 'appointments_3_history'`)).rows[0] as { tgenabled: string };
+      const tg = (
+        await t3.db.execute(
+          sql`SELECT tgenabled FROM pg_trigger WHERE tgname = 'appointments_3_history'`,
+        )
+      ).rows[0] as { tgenabled: string };
       expect(tg.tgenabled).toBe('O');
     } finally {
       await t3.drop();
@@ -233,7 +292,16 @@ describe('seeding is safe to repeat, race, and fail', () => {
 });
 
 describe('generator', () => {
-  const opts = { rng: 7, doctors: 6, patients: 200, appointments: 700, pastDays: 30, futureDays: 14, now: new Date(NOW), passwordHash: 'h' };
+  const opts = {
+    rng: 7,
+    doctors: 6,
+    patients: 200,
+    appointments: 700,
+    pastDays: 30,
+    futureDays: 14,
+    now: new Date(NOW),
+    passwordHash: 'h',
+  };
   it('is deterministic for a given seed and different for another', () => {
     const a = generateSeed(opts);
     const b = generateSeed(opts);

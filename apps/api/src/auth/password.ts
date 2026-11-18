@@ -18,4 +18,5 @@ export const verifyPassword = async (storedHash: string, plain: string): Promise
  * the response time the same as for a wrong password (no account enumeration by timing).
  */
 let dummy: Promise<string> | undefined;
-export const dummyHash = (p: ArgonParams): Promise<string> => (dummy ??= hashPassword(`dummy-${Math.random()}-${Date.now()}`, p));
+export const dummyHash = (p: ArgonParams): Promise<string> =>
+  (dummy ??= hashPassword(`dummy-${Math.random()}-${Date.now()}`, p));

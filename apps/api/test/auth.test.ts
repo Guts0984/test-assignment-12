@@ -4,8 +4,12 @@ import { sql } from 'drizzle-orm';
 import { PASSWORD, codeOf, gql, login, startFixture, type Fixture } from './helpers.js';
 
 let f: Fixture;
-beforeAll(async () => { f = await startFixture(); });
-afterAll(async () => { await f.stop(); });
+beforeAll(async () => {
+  f = await startFixture();
+});
+afterAll(async () => {
+  await f.stop();
+});
 
 const SIGN_IN = `mutation($i: SignInInput!){ signIn(input:$i){ id role email patientId } }`;
 const SIGN_UP = `mutation($i: SignUpInput!){ signUp(input:$i){ id role email patientId } }`;
@@ -34,7 +38,9 @@ describe('sessions', () => {
     const token = a.slice(4);
     const stored = await f.t.db.execute(sql`SELECT token_hash FROM sessions`);
     expect(JSON.stringify(stored.rows)).not.toContain(token);
-    expect((stored.rows as { token_hash: string }[]).every((r) => /^[0-9a-f]{64}$/.test(r.token_hash))).toBe(true);
+    expect(
+      (stored.rows as { token_hash: string }[]).every((r) => /^[0-9a-f]{64}$/.test(r.token_hash)),
+    ).toBe(true);
   });
 
   it('sign out kills the session for good', async () => {
@@ -52,7 +58,18 @@ describe('sessions', () => {
   });
 
   it('forged, truncated, oversized and injection-shaped cookies are simply anonymous', async () => {
-    for (const bad of ['sid=', 'sid=abc', `sid=${'A'.repeat(100)}`, `sid=${'A'.repeat(5000)}`, "sid=' OR '1'='1", 'sid=../../etc/passwd', 'sid=%00%00', 'sid; sid=2', `sid=${'a'.repeat(43)}`, 'x=y']) {
+    for (const bad of [
+      'sid=',
+      'sid=abc',
+      `sid=${'A'.repeat(100)}`,
+      `sid=${'A'.repeat(5000)}`,
+      "sid=' OR '1'='1",
+      'sid=../../etc/passwd',
+      'sid=%00%00',
+      'sid; sid=2',
+      `sid=${'a'.repeat(43)}`,
+      'x=y',
+    ]) {
       const r = await gql<{ me: unknown }>(f.api, ME, {}, { cookie: bad });
       expect(r.status, bad.slice(0, 20)).toBe(200);
       expect(r.body.errors, bad.slice(0, 20)).toBeUndefined();
@@ -60,7 +77,7 @@ describe('sessions', () => {
     }
   });
 
-  it('a session does not grant another user\'s role (role comes from the database every request)', async () => {
+  it("a session does not grant another user's role (role comes from the database every request)", async () => {
     const c = await login(f.api, 'p4@t.io');
     await f.t.db.execute(sql`UPDATE users SET role = 'manager' WHERE email = 'p4@t.io'`);
     const me = await gql<{ me: { role: string } }>(f.api, ME, {}, { cookie: c });
@@ -71,8 +88,12 @@ describe('sessions', () => {
 
 describe('credentials', () => {
   it('wrong password and unknown email give the same answer', async () => {
-    const wrong = await gql(f.api, SIGN_IN, { i: { email: 'p5@t.io', password: 'nope-nope-nope' } });
-    const unknown = await gql(f.api, SIGN_IN, { i: { email: 'nobody@t.io', password: 'nope-nope-nope' } });
+    const wrong = await gql(f.api, SIGN_IN, {
+      i: { email: 'p5@t.io', password: 'nope-nope-nope' },
+    });
+    const unknown = await gql(f.api, SIGN_IN, {
+      i: { email: 'nobody@t.io', password: 'nope-nope-nope' },
+    });
     expect(codeOf(wrong)).toBe('INVALID_CREDENTIALS');
     expect(codeOf(unknown)).toBe('INVALID_CREDENTIALS');
     expect(wrong.body.errors?.[0]?.message).toBe(unknown.body.errors?.[0]?.message);
@@ -103,8 +124,15 @@ describe('credentials', () => {
   });
 
   it('sign up creates a patient with a session; duplicate email / phone are reported at the field', async () => {
-    const input = { email: 'new@t.io', password: 'a-long-enough-pass', fullName: 'Нова Пацієнтка', phone: '+380509999001' };
-    const r = await gql<{ signUp: { role: string; patientId: string } }>(f.api, SIGN_UP, { i: input });
+    const input = {
+      email: 'new@t.io',
+      password: 'a-long-enough-pass',
+      fullName: 'Нова Пацієнтка',
+      phone: '+380509999001',
+    };
+    const r = await gql<{ signUp: { role: string; patientId: string } }>(f.api, SIGN_UP, {
+      i: input,
+    });
     expect(r.body.errors).toBeUndefined();
     expect(r.body.data?.signUp.role).toBe('patient');
     expect(r.headers.getSetCookie().some((c) => c.startsWith('sid='))).toBe(true);
@@ -115,25 +143,47 @@ describe('credentials', () => {
     expect(codeOf(dupPhone)).toBe('BAD_USER_INPUT');
     expect(dupPhone.body.errors?.[0]?.extensions?.fieldErrors).toHaveProperty('phone');
     // nothing half-created: no user row without a patient row
-    const orphans = await f.t.db.execute(sql`SELECT count(*)::int AS n FROM users u WHERE role = 'patient' AND NOT EXISTS (SELECT 1 FROM patients p WHERE p.user_id = u.id)`);
+    const orphans = await f.t.db.execute(
+      sql`SELECT count(*)::int AS n FROM users u WHERE role = 'patient' AND NOT EXISTS (SELECT 1 FROM patients p WHERE p.user_id = u.id)`,
+    );
     expect((orphans.rows[0] as { n: number }).n).toBe(0);
   });
 
   it('a patient registered by phone (no account) is NOT claimed by signing up with that number', async () => {
-    const ins = await f.t.db.execute(sql`INSERT INTO patients (full_name, phone, email) VALUES ('Телефонний', '+380509999003', 'orig@t.io') RETURNING id`);
+    const ins = await f.t.db.execute(
+      sql`INSERT INTO patients (full_name, phone, email) VALUES ('Телефонний', '+380509999003', 'orig@t.io') RETURNING id`,
+    );
     const pid = String((ins.rows[0] as { id: string }).id);
-    const r = await gql(f.api, SIGN_UP, { i: { email: 'phone@t.io', password: 'a-long-enough-pass', fullName: 'Телефонний', phone: '+380509999003' } });
+    const r = await gql(f.api, SIGN_UP, {
+      i: {
+        email: 'phone@t.io',
+        password: 'a-long-enough-pass',
+        fullName: 'Телефонний',
+        phone: '+380509999003',
+      },
+    });
     expect(codeOf(r)).toBe('BAD_USER_INPUT');
     expect(r.body.errors?.[0]?.extensions?.fieldErrors).toHaveProperty('phone');
-    const n = await f.t.db.execute(sql`SELECT count(*)::int AS n FROM patients WHERE phone = '+380509999003'`);
+    const n = await f.t.db.execute(
+      sql`SELECT count(*)::int AS n FROM patients WHERE phone = '+380509999003'`,
+    );
     expect((n.rows[0] as { n: number }).n).toBe(1);
-    const row = (await f.t.db.execute(sql`SELECT user_id, email FROM patients WHERE id = ${pid}::uuid`)).rows[0] as { user_id: string | null; email: string };
+    const row = (
+      await f.t.db.execute(sql`SELECT user_id, email FROM patients WHERE id = ${pid}::uuid`)
+    ).rows[0] as { user_id: string | null; email: string };
     expect(row).toEqual({ user_id: null, email: 'orig@t.io' });
-    expect(((await f.t.db.execute(sql`SELECT count(*)::int AS n FROM users WHERE email = 'phone@t.io'`)).rows[0] as { n: number }).n).toBe(0);
+    expect(
+      (
+        (await f.t.db.execute(sql`SELECT count(*)::int AS n FROM users WHERE email = 'phone@t.io'`))
+          .rows[0] as { n: number }
+      ).n,
+    ).toBe(0);
   });
 
   it('validation errors name the fields', async () => {
-    const r = await gql(f.api, SIGN_UP, { i: { email: 'not-an-email', password: 'short', fullName: 'x', phone: '123' } });
+    const r = await gql(f.api, SIGN_UP, {
+      i: { email: 'not-an-email', password: 'short', fullName: 'x', phone: '123' },
+    });
     expect(codeOf(r)).toBe('BAD_USER_INPUT');
     const fe = r.body.errors?.[0]?.extensions?.fieldErrors ?? {};
     for (const k of ['email', 'password', 'fullName', 'phone']) expect(fe, k).toHaveProperty(k);
@@ -141,7 +191,14 @@ describe('credentials', () => {
 
   it('a huge password is refused before it reaches the hasher (CPU DoS guard)', async () => {
     const t0 = performance.now();
-    const r = await gql(f.api, SIGN_UP, { i: { email: 'huge@t.io', password: 'x'.repeat(90_000), fullName: 'Huge', phone: '+380509999004' } });
+    const r = await gql(f.api, SIGN_UP, {
+      i: {
+        email: 'huge@t.io',
+        password: 'x'.repeat(90_000),
+        fullName: 'Huge',
+        phone: '+380509999004',
+      },
+    });
     expect(codeOf(r)).toBe('BAD_USER_INPUT');
     expect(performance.now() - t0).toBeLessThan(2000);
   });
@@ -155,33 +212,61 @@ describe('errors never leak and never become "Internal server error" for bad inp
   ];
   it('garbage variables produce coded client errors', async () => {
     await fc.assert(
-      fc.asyncProperty(fc.constantFrom(...ops), fc.anything({ withNullPrototype: false }), async ([, q], junk) => {
-        const r = await gql(f.api, q, { i: junk as never, c: junk as never });
-        for (const e of r.body.errors ?? []) {
-          expect(e.extensions?.code).toBeTruthy();
-          expect(e.extensions?.code).not.toBe('INTERNAL_SERVER_ERROR');
-          expect(e.message).not.toMatch(/at .*\(.*:\d+:\d+\)|node_modules|drizzle|SELECT /i);
-        }
-        expect(r.status).toBeLessThan(500);
-      }),
+      fc.asyncProperty(
+        fc.constantFrom(...ops),
+        fc.anything({ withNullPrototype: false }),
+        async ([, q], junk) => {
+          const r = await gql(f.api, q, { i: junk as never, c: junk as never });
+          for (const e of r.body.errors ?? []) {
+            expect(e.extensions?.code).toBeTruthy();
+            expect(e.extensions?.code).not.toBe('INTERNAL_SERVER_ERROR');
+            expect(e.message).not.toMatch(/at .*\(.*:\d+:\d+\)|node_modules|drizzle|SELECT /i);
+          }
+          expect(r.status).toBeLessThan(500);
+        },
+      ),
       { numRuns: 60 },
     );
   });
   it('hostile ids and dates in real arguments', async () => {
-    for (const id of ["' OR 1=1 --", 'not-a-uuid', '', '\u0000', 'ǵ'.repeat(500), '00000000-0000-4000-8000-000000000000']) {
-      const r = await gql(f.api, `query($c: ID!){ clinicServices(clinicId:$c){ priceMinor } }`, { c: id });
+    for (const id of [
+      "' OR 1=1 --",
+      'not-a-uuid',
+      '',
+      '\u0000',
+      'ǵ'.repeat(500),
+      '00000000-0000-4000-8000-000000000000',
+    ]) {
+      const r = await gql(f.api, `query($c: ID!){ clinicServices(clinicId:$c){ priceMinor } }`, {
+        c: id,
+      });
       expect(codeOf(r) ?? 'none', id.slice(0, 10)).not.toBe('INTERNAL_SERVER_ERROR');
     }
     for (const d of ['2026-02-30', 'yesterday', '0000-00-00', "2026-01-01'; DROP TABLE users;--"]) {
-      const r = await gql(f.api, `query($i: AvailabilityInput!){ availability(input:$i){ clinicId } }`, { i: { clinicId: f.w.kyiv, serviceId: f.w.c30, fromDate: d } });
+      const r = await gql(
+        f.api,
+        `query($i: AvailabilityInput!){ availability(input:$i){ clinicId } }`,
+        { i: { clinicId: f.w.kyiv, serviceId: f.w.c30, fromDate: d } },
+      );
       expect(codeOf(r), d).toBe('BAD_USER_INPUT');
     }
     expect((await f.t.db.execute(sql`SELECT count(*)::int AS n FROM users`)).rows[0]).toBeTruthy();
   });
   it('malformed GraphQL / JSON bodies are 4xx with a code, not 500', async () => {
-    const bodies = ['{', '[]', '{"query": 5}', '{"query":"{ nonexistent }"}', 'null', '{"query":"query { clinics { id "}'];
+    const bodies = [
+      '{',
+      '[]',
+      '{"query": 5}',
+      '{"query":"{ nonexistent }"}',
+      'null',
+      '{"query":"query { clinics { id "}',
+    ];
     for (const b of bodies) {
-      const res = await fetch(`${f.api.url}/graphql`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: b });
+      const res = await fetch(`${f.api.url}/graphql`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: b,
+      });
       expect(res.status, b).toBeLessThan(500);
       const text = await res.text();
       expect(text).not.toMatch(/INTERNAL_SERVER_ERROR/);

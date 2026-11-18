@@ -1,5 +1,13 @@
 import { loadAvailabilityInputs, type Db } from '@clinic/db';
-import { AVAILABILITY_DAYS, addDays, localDateOf, localToInstant, ok, type AppError, type Result } from '@clinic/shared';
+import {
+  AVAILABILITY_DAYS,
+  addDays,
+  localDateOf,
+  localToInstant,
+  ok,
+  type AppError,
+  type Result,
+} from '@clinic/shared';
 import { fail, type Ctx } from './context.js';
 import { computeSlots, type Slot } from './grid.js';
 
@@ -15,7 +23,13 @@ export type AvailabilityResult = {
 /** Free times for a service in one clinic (city) for the next 14 clinic-local days. */
 export const getAvailability = async (
   ctx: Ctx,
-  q: { clinicId: string; serviceId: string; doctorId?: string | undefined; fromDate?: string | undefined; days?: number | undefined },
+  q: {
+    clinicId: string;
+    serviceId: string;
+    doctorId?: string | undefined;
+    fromDate?: string | undefined;
+    days?: number | undefined;
+  },
   db: Db = ctx.db,
 ): Promise<Result<AvailabilityResult, AppError>> => {
   const now = ctx.now();
@@ -47,7 +61,8 @@ export const getAvailability = async (
     toDate,
     now,
   });
-  if (!inputs.clinic || !inputs.service) return fail('NOT_FOUND', 'The clinic does not offer this service');
+  if (!inputs.clinic || !inputs.service)
+    return fail('NOT_FOUND', 'The clinic does not offer this service');
   const slots = computeSlots({
     timeZone: inputs.clinic.timeZone,
     clinicId: q.clinicId,

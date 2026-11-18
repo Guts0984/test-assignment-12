@@ -1,15 +1,67 @@
-import { Field, Float, GraphQLISODateTime, ID, Int, ObjectType, registerEnumType } from '@nestjs/graphql';
+import {
+  Field,
+  Float,
+  GraphQLISODateTime,
+  ID,
+  Int,
+  ObjectType,
+  registerEnumType,
+} from '@nestjs/graphql';
 import { APPOINTMENT_STATUSES, CURRENCIES, LOCALES, ROLES } from '@clinic/shared';
 
-export enum RoleEnum { patient = 'patient', registrar = 'registrar', doctor = 'doctor', manager = 'manager' }
-export enum StatusEnum { held = 'held', booked = 'booked', checked_in = 'checked_in', completed = 'completed', no_show = 'no_show', cancelled = 'cancelled' }
-export enum CurrencyEnum { UAH = 'UAH', PLN = 'PLN' }
-export enum LocaleEnum { uk = 'uk', en = 'en', pl = 'pl' }
-export enum KindEnum { regular = 'regular', waitlist_offer = 'waitlist_offer' }
-export enum OfferStatusEnum { pending = 'pending', accepted = 'accepted', declined = 'declined', expired = 'expired' }
-export enum VisitScopeEnum { UPCOMING = 'UPCOMING', PAST = 'PAST' }
-export enum BoardStateEnum { expected = 'expected', late = 'late', arrived = 'arrived', with_doctor = 'with_doctor', done = 'done', no_show = 'no_show', cancelled = 'cancelled' }
-export enum ExceptionKindEnum { vacation = 'vacation', sick = 'sick', day_off = 'day_off', extra_day = 'extra_day', custom_hours = 'custom_hours' }
+export enum RoleEnum {
+  patient = 'patient',
+  registrar = 'registrar',
+  doctor = 'doctor',
+  manager = 'manager',
+}
+export enum StatusEnum {
+  held = 'held',
+  booked = 'booked',
+  checked_in = 'checked_in',
+  completed = 'completed',
+  no_show = 'no_show',
+  cancelled = 'cancelled',
+}
+export enum CurrencyEnum {
+  UAH = 'UAH',
+  PLN = 'PLN',
+}
+export enum LocaleEnum {
+  uk = 'uk',
+  en = 'en',
+  pl = 'pl',
+}
+export enum KindEnum {
+  regular = 'regular',
+  waitlist_offer = 'waitlist_offer',
+}
+export enum OfferStatusEnum {
+  pending = 'pending',
+  accepted = 'accepted',
+  declined = 'declined',
+  expired = 'expired',
+}
+export enum VisitScopeEnum {
+  UPCOMING = 'UPCOMING',
+  PAST = 'PAST',
+}
+export enum BoardStateEnum {
+  expected = 'expected',
+  late = 'late',
+  arrived = 'arrived',
+  with_doctor = 'with_doctor',
+  done = 'done',
+  no_show = 'no_show',
+  cancelled = 'cancelled',
+}
+export enum ExceptionKindEnum {
+  vacation = 'vacation',
+  sick = 'sick',
+  day_off = 'day_off',
+  extra_day = 'extra_day',
+  custom_hours = 'custom_hours',
+}
 registerEnumType(RoleEnum, { name: 'Role' });
 registerEnumType(StatusEnum, { name: 'AppointmentStatus' });
 registerEnumType(CurrencyEnum, { name: 'Currency' });
@@ -245,6 +297,9 @@ export class WaitlistStatsType {
 export class RevenueRowType {
   @Field(() => ID) serviceId!: string;
   @Field(() => String) serviceCode!: string;
+  @Field(() => String) nameUk!: string;
+  @Field(() => String) nameEn!: string;
+  @Field(() => String) namePl!: string;
   @Field(() => CurrencyEnum) currency!: CurrencyEnum;
   @Field(() => Float) revenueMinor!: number;
   @Field(() => Int) visits!: number;

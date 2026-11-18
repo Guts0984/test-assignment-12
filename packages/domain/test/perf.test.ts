@@ -13,7 +13,14 @@ let ctx: Ctx;
 
 beforeAll(async () => {
   t = await createTestDb();
-  await runSeed(t.pool, loadDbEnv({ DATABASE_URL: t.url, SEED_PASSWORD: 'demo-password-1', SEED_NOW: NOW.toISOString() }));
+  await runSeed(
+    t.pool,
+    loadDbEnv({
+      DATABASE_URL: t.url,
+      SEED_PASSWORD: 'demo-password-1',
+      SEED_NOW: NOW.toISOString(),
+    }),
+  );
   ctx = makeCtx(t.db, clock);
 }, 300_000);
 afterAll(async () => {
@@ -35,11 +42,14 @@ const p95 = async (runs: number, f: () => Promise<unknown>): Promise<number> => 
 describe('availability on the full seed', () => {
   it('every clinic × every service, 14 days, all doctors: p95 < 300 ms and the grid is not empty', async () => {
     // combos where at least one doctor works in the clinic AND offers the service
-    const combos = await rows<{ clinic: string; service: string; code: string }>(t.db, sql`
+    const combos = await rows<{ clinic: string; service: string; code: string }>(
+      t.db,
+      sql`
       SELECT DISTINCT cs.clinic_id AS clinic, cs.service_id AS service, s.code FROM clinic_services cs
       JOIN services s ON s.id = cs.service_id
       JOIN doctor_services ds ON ds.service_id = cs.service_id
-      JOIN schedule_templates t ON t.doctor_id = ds.doctor_id AND t.clinic_id = cs.clinic_id`);
+      JOIN schedule_templates t ON t.doctor_id = ds.doctor_id AND t.clinic_id = cs.clinic_id`,
+    );
     expect(combos.length).toBeGreaterThan(20);
     let nonEmpty = 0;
     const worst: number[] = [];
@@ -50,21 +60,50 @@ describe('availability on the full seed', () => {
       worst.push(await p95(8, run));
     }
     expect(nonEmpty).toBe(combos.length); // 14 days of a seeded clinic always have some free time
-    console.log('availability p95 per combo (ms): max', Math.max(...worst).toFixed(1), 'median', worst.sort((a, b) => a - b)[Math.floor(worst.length / 2)]?.toFixed(1));
+    console.log(
+      'availability p95 per combo (ms): max',
+      Math.max(...worst).toFixed(1),
+      'median',
+      worst.sort((a, b) => a - b)[Math.floor(worst.length / 2)]?.toFixed(1),
+    );
     expect(Math.max(...worst)).toBeLessThan(300);
   });
 
   it('a hold and a confirm on the full seed are quick too', async () => {
-    const patient = (await rows<{ id: string; user_id: string }>(t.db, sql`SELECT id, user_id FROM patients p WHERE user_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM appointments a WHERE a.patient_id = p.id AND a.status <> 'cancelled' AND a.starts_at > ${NOW.toISOString()}::timestamptz) AND online_booking_blocked_until IS NULL LIMIT 1`))[0];
-    const clinic = (await rows<{ id: string }>(t.db, sql`SELECT id FROM clinics WHERE code = 'kyiv'`))[0];
-    const svc = (await rows<{ id: string }>(t.db, sql`SELECT id FROM services WHERE code = 'therapy-consult'`))[0];
-    const g = must(await getAvailability(ctx, { clinicId: clinic?.id as string, serviceId: svc?.id as string }));
+    const patient = (
+      await rows<{ id: string; user_id: string }>(
+        t.db,
+        sql`SELECT id, user_id FROM patients p WHERE user_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM appointments a WHERE a.patient_id = p.id AND a.status <> 'cancelled' AND a.starts_at > ${NOW.toISOString()}::timestamptz) AND online_booking_blocked_until IS NULL LIMIT 1`,
+      )
+    )[0];
+    const clinic = (
+      await rows<{ id: string }>(t.db, sql`SELECT id FROM clinics WHERE code = 'kyiv'`)
+    )[0];
+    const svc = (
+      await rows<{ id: string }>(t.db, sql`SELECT id FROM services WHERE code = 'therapy-consult'`)
+    )[0];
+    const g = must(
+      await getAvailability(ctx, { clinicId: clinic?.id as string, serviceId: svc?.id as string }),
+    );
     const slot = g.slots[0];
     expect(slot).toBeDefined();
-    const actor = { userId: patient?.user_id as string, role: 'patient' as const, patientId: patient?.id as string };
+    const actor = {
+      userId: patient?.user_id as string,
+      role: 'patient' as const,
+      patientId: patient?.id as string,
+    };
     const s = performance.now();
-    const h = must(await holdSlot(ctx, actor, { clinicId: clinic?.id as string, doctorId: slot?.doctorId as string, serviceId: svc?.id as string, startsAt: slot?.startsAt as Date }));
-    const a = must(await confirmBooking(ctx, actor, { appointmentId: h.id, idempotencyKey: 'perf-key-1' }));
+    const h = must(
+      await holdSlot(ctx, actor, {
+        clinicId: clinic?.id as string,
+        doctorId: slot?.doctorId as string,
+        serviceId: svc?.id as string,
+        startsAt: slot?.startsAt as Date,
+      }),
+    );
+    const a = must(
+      await confirmBooking(ctx, actor, { appointmentId: h.id, idempotencyKey: 'perf-key-1' }),
+    );
     expect(performance.now() - s).toBeLessThan(500);
     expect(a.status).toBe('booked');
   });
