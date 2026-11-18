@@ -32,6 +32,48 @@ services:
       postgres: { condition: service_healthy }
     restart: "no"
 
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      PORT: 4000
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      REDIS_URL: redis://redis:6379
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      SESSION_TTL_HOURS: ${SESSION_TTL_HOURS:-168}
+      CORS_ORIGINS: ${CORS_ORIGINS}
+      TRUST_PROXY_CIDRS: ${TRUST_PROXY_CIDRS}
+      GQL_MAX_DEPTH: ${GQL_MAX_DEPTH:-10}
+      GQL_MAX_COMPLEXITY: ${GQL_MAX_COMPLEXITY:-2000}
+      GQL_MAX_FIELDS: ${GQL_MAX_FIELDS:-400}
+      BODY_LIMIT_KB: ${BODY_LIMIT_KB:-100}
+      RATE_GLOBAL_PER_MIN: ${RATE_GLOBAL_PER_MIN:-300}
+      RATE_SIGNIN_PER_MIN: ${RATE_SIGNIN_PER_MIN:-5}
+      RATE_SIGNIN_IP_PER_MIN: ${RATE_SIGNIN_IP_PER_MIN:-20}
+      RATE_SIGNUP_PER_HOUR: ${RATE_SIGNUP_PER_HOUR:-5}
+      RATE_HOLD_PER_MIN: ${RATE_HOLD_PER_MIN:-10}
+      WS_MAX_CONN_PER_IP: ${WS_MAX_CONN_PER_IP:-10}
+      WS_MAX_SUBS_PER_CONN: ${WS_MAX_SUBS_PER_CONN:-10}
+      ARGON_MEMORY_KIB: ${ARGON_MEMORY_KIB:-19456}
+      ARGON_TIME_COST: ${ARGON_TIME_COST:-2}
+      HOLD_TTL_SECONDS: ${HOLD_TTL_SECONDS:-600}
+      OFFER_TTL_SECONDS: ${OFFER_TTL_SECONDS:-900}
+      MIN_LEAD_MINUTES: ${MIN_LEAD_MINUTES:-120}
+      MAX_ADVANCE_DAYS: ${MAX_ADVANCE_DAYS:-60}
+      PREP_MINUTES: ${PREP_MINUTES:-5}
+    ports: ["${API_PORT:-4000}:4000"]
+    depends_on:
+      db-init: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4000/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
   worker:
     build:
       context: .

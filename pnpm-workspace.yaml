@@ -2,11 +2,13 @@ packages:
   - apps/*
   - packages/*
 allowBuilds:
+  "@apollo/protobufjs": false
   msgpackr-extract: false
   cpu-features: false
   esbuild: true
   protobufjs: false
   ssh2: false
+  '@swc/core': true
 minimumReleaseAgeExclude:
   - '@typescript-eslint/eslint-plugin@8.73.0'
   - '@typescript-eslint/parser@8.73.0'
@@ -20,3 +22,5 @@ minimumReleaseAgeExclude:
   - '@typescript-eslint/visitor-keys@8.73.0'
   - typescript-eslint@8.73.0
   - bullmq@6.7.7
+  - graphql-subscriptions@3.1.0
+  - graphql-ws@6.4.3

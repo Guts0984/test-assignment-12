@@ -1,0 +1,431 @@
+type Appointment {
+  boardState: BoardState!
+  cancelledLate: Boolean!
+  clinic: Clinic!
+  clinicId: ID!
+  createdAt: DateTime!
+  currency: Currency!
+  doctor: Doctor!
+  doctorId: ID!
+  endsAt: DateTime!
+  events: [AppointmentEvent!]!
+  holdExpiresAt: DateTime
+  id: ID!
+  kind: AppointmentKind!
+  localDate: String!
+  patient: Patient
+  patientId: ID!
+  priceMinor: Int!
+  service: Service!
+  serviceId: ID!
+  startsAt: DateTime!
+  status: AppointmentStatus!
+  version: Int!
+}
+
+type AppointmentEvent {
+  actorRole: String!
+  at: DateTime!
+  fromStatus: AppointmentStatus
+  late: Boolean!
+  newStartsAt: DateTime
+  oldStartsAt: DateTime
+  reason: String
+  toStatus: AppointmentStatus!
+  type: String!
+}
+
+enum AppointmentKind {
+  regular
+  waitlist_offer
+}
+
+enum AppointmentStatus {
+  booked
+  cancelled
+  checked_in
+  completed
+  held
+  no_show
+}
+
+type Availability {
+  clinicId: ID!
+  currency: Currency!
+  doctors: [Doctor!]!
+  durationMin: Int!
+  priceMinor: Int!
+  slots: [Slot!]!
+  timeZone: String!
+}
+
+type AvailabilityEvent {
+  clinicId: ID!
+  doctorId: ID!
+  localDate: String!
+}
+
+input AvailabilityInput {
+  clinicId: ID!
+  doctorId: ID
+  fromDate: String
+  serviceId: ID!
+}
+
+enum BoardState {
+  arrived
+  cancelled
+  done
+  expected
+  late
+  no_show
+  with_doctor
+}
+
+input CancelInput {
+  appointmentId: ID!
+  reason: String
+}
+
+type Clinic {
+  city: String!
+  currency: Currency!
+  id: ID!
+  timeZone: String!
+}
+
+type ClinicService {
+  currency: Currency!
+  priceMinor: Int!
+  service: Service!
+}
+
+input ConfirmBookingInput {
+  appointmentId: ID!
+  idempotencyKey: String!
+}
+
+enum Currency {
+  PLN
+  UAH
+}
+
+"""
+A date-time string at UTC, such as 2019-12-03T09:54:33Z, compliant with the date-time format.
+"""
+scalar DateTime
+
+type Doctor {
+  fullName: String!
+  id: ID!
+  specialty: String!
+}
+
+type DoctorSchedule {
+  doctorId: ID!
+  exceptions: [ExceptionRow!]!
+  templates: [TemplateRow!]!
+}
+
+input ExceptionInput {
+  breakEndLocal: String
+  breakStartLocal: String
+  clinicId: ID
+  doctorId: ID!
+  endLocal: String
+  kind: ExceptionKind!
+  localDate: String!
+  startLocal: String
+}
+
+enum ExceptionKind {
+  custom_hours
+  day_off
+  extra_day
+  sick
+  vacation
+}
+
+type ExceptionRow {
+  clinicId: ID
+  doctorId: ID!
+  endLocal: String
+  kind: ExceptionKind!
+  localDate: String!
+  startLocal: String
+}
+
+input HoldSlotInput {
+  clinicId: ID!
+  doctorId: ID!
+  patientId: ID
+  serviceId: ID!
+  startsAt: String!
+}
+
+input JoinWaitlistInput {
+  doctorId: ID!
+  fromDate: String!
+  serviceId: ID!
+  toDate: String!
+}
+
+enum Locale {
+  en
+  pl
+  uk
+}
+
+input MarkSickInput {
+  doctorId: ID!
+  localDate: String!
+}
+
+type Mutation {
+  acceptOffer(input: RespondOfferInput!): Appointment!
+  cancelAppointment(input: CancelInput!): Appointment!
+  checkIn(id: ID!): Appointment!
+  completeVisit(id: ID!): Appointment!
+  confirmBooking(input: ConfirmBookingInput!): Appointment!
+  declineOffer(id: ID!): Boolean!
+  holdSlot(input: HoldSlotInput!): Appointment!
+  joinWaitlist(input: JoinWaitlistInput!): WaitlistEntry!
+  leaveWaitlist(id: ID!): Boolean!
+  markDoctorSick(input: MarkSickInput!): SickResult!
+  markNoShow(id: ID!): Appointment!
+  markNotificationsRead: Int!
+  registrarBook(input: RegistrarBookInput!): Appointment!
+  removeScheduleException(input: RemoveExceptionInput!): Boolean!
+  removeScheduleTemplate(input: RemoveTemplateInput!): Boolean!
+  rescheduleAppointment(input: RescheduleInput!): Appointment!
+  setScheduleException(input: ExceptionInput!): Boolean!
+  setScheduleTemplate(input: TemplateInput!): Boolean!
+  signIn(input: SignInInput!): User!
+  signOut: Boolean!
+  signUp(input: SignUpInput!): User!
+}
+
+type Notification {
+  createdAt: DateTime!
+  id: ID!
+  kind: String!
+  payloadJson: String!
+  readAt: DateTime
+}
+
+enum OfferStatus {
+  accepted
+  declined
+  expired
+  pending
+}
+
+type Patient {
+  email: String
+  fullName: String!
+  id: ID!
+  onlineBookingBlockedUntil: DateTime
+  phone: String
+  visits: [Appointment!]!
+}
+
+type Query {
+  appointment(id: ID!): Appointment
+  availability(input: AvailabilityInput!): Availability!
+  clinicBoard(clinicId: ID!, date: String!): [Appointment!]!
+  clinicDoctors(clinicId: ID!, serviceId: ID): [Doctor!]!
+  clinicServices(clinicId: ID!): [ClinicService!]!
+  clinics: [Clinic!]!
+  doctorSchedule(days: Int! = 7, fromDate: String!): [Appointment!]!
+  doctorWeeklySchedule(doctorId: ID!): DoctorSchedule!
+  me: User
+  myAppointments(limit: Int, offset: Int, scope: VisitScope! = UPCOMING): [Appointment!]!
+  myNotifications(limit: Int): [Notification!]!
+  myOffers: [WaitlistOffer!]!
+  myWaitlist: [WaitlistEntry!]!
+  report(clinicId: ID, from: String!, to: String!): Report!
+  searchPatients(query: String!): [Patient!]!
+}
+
+type RateStats {
+  bookings: Int!
+  lateCancelPercent: Float!
+  lateCancels: Int!
+  noShowPercent: Float!
+  noShows: Int!
+}
+
+input RegistrarBookInput {
+  clinicId: ID!
+  doctorId: ID!
+  idempotencyKey: String!
+  newPatientEmail: String
+  newPatientName: String
+  newPatientPhone: String
+  patientId: ID
+  serviceId: ID!
+  startsAt: String!
+}
+
+input RemoveExceptionInput {
+  doctorId: ID!
+  localDate: String!
+}
+
+input RemoveTemplateInput {
+  clinicId: ID!
+  doctorId: ID!
+  weekday: Int!
+}
+
+type Report {
+  from: String!
+  rates: RateStats!
+  revenue: [RevenueRow!]!
+  to: String!
+  utilization: [UtilizationRow!]!
+  waitlist: WaitlistStats!
+}
+
+input RescheduleInput {
+  appointmentId: ID!
+  expectedVersion: Int
+  newStartsAt: String!
+}
+
+input RespondOfferInput {
+  idempotencyKey: String
+  offerId: ID!
+}
+
+type RevenueRow {
+  currency: Currency!
+  revenueMinor: Int!
+  serviceCode: String!
+  serviceId: ID!
+  visits: Int!
+}
+
+enum Role {
+  doctor
+  manager
+  patient
+  registrar
+}
+
+type Service {
+  code: String!
+  durationMin: Int!
+  id: ID!
+  nameEn: String!
+  namePl: String!
+  nameUk: String!
+  needsUltrasound: Boolean!
+  specialty: String!
+}
+
+type SickResult {
+  alreadyMarked: Boolean!
+  cancelled: Int!
+}
+
+input SignInInput {
+  email: String!
+  password: String!
+}
+
+input SignUpInput {
+  email: String!
+  fullName: String!
+  locale: Locale
+  password: String!
+  phone: String!
+}
+
+type Slot {
+  doctor: Doctor
+  doctorId: ID!
+  endsAt: DateTime!
+  localDate: String!
+  localTime: String!
+  startsAt: DateTime!
+}
+
+type Subscription {
+  availabilityChanged(clinicId: ID!, doctorId: ID): AvailabilityEvent!
+  clinicAppointmentChanged(clinicId: ID!): Appointment
+  doctorAppointmentChanged: Appointment
+  myAppointmentChanged: Appointment
+}
+
+input TemplateInput {
+  breakEndLocal: String
+  breakStartLocal: String
+  clinicId: ID!
+  doctorId: ID!
+  endLocal: String!
+  startLocal: String!
+  weekday: Int!
+}
+
+type TemplateRow {
+  breakEndLocal: String
+  breakStartLocal: String
+  clinicId: ID!
+  doctorId: ID!
+  endLocal: String!
+  startLocal: String!
+  weekday: Int!
+}
+
+type User {
+  clinicId: ID
+  doctorId: ID
+  email: String!
+  fullName: String
+  id: ID!
+  locale: Locale
+  patientId: ID
+  role: Role!
+}
+
+type UtilizationRow {
+  bookedMinutes: Int!
+  clinicId: ID!
+  doctorId: ID!
+  doctorName: String!
+  percent: Float!
+  workMinutes: Int!
+}
+
+enum VisitScope {
+  PAST
+  UPCOMING
+}
+
+type WaitlistEntry {
+  createdAt: DateTime!
+  doctor: Doctor!
+  doctorId: ID!
+  fromDate: String!
+  id: ID!
+  priority: Int!
+  service: Service!
+  serviceId: ID!
+  status: String!
+  toDate: String!
+}
+
+type WaitlistOffer {
+  appointment: Appointment
+  appointmentId: ID!
+  expiresAt: DateTime!
+  id: ID!
+  status: OfferStatus!
+}
+
+type WaitlistStats {
+  accepted: Int!
+  acceptedPercent: Float!
+  offered: Int!
+}
