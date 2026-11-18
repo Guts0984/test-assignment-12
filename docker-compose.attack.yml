@@ -1,0 +1,16 @@
+# docker compose -f docker-compose.yml -f docker-compose.attack.yml --profile attack ... (see infra/attack/run.sh)
+services:
+  attacker:
+    profiles: [attack]
+    image: node:24-slim
+    volumes: ["./infra/attack:/attack:ro"]
+    command: ["node", "/attack/run.mjs", "attacker"]
+    environment: { TARGET: "http://nginx", DURATION_S: "${ATTACK_SECONDS:-20}" }
+    networks: { default: { ipv4_address: 172.31.77.50 } }
+  legit:
+    profiles: [attack]
+    image: node:24-slim
+    volumes: ["./infra/attack:/attack:ro"]
+    command: ["node", "/attack/run.mjs", "legit"]
+    environment: { TARGET: "http://nginx", DURATION_S: "${ATTACK_SECONDS:-20}" }
+    networks: { default: { ipv4_address: 172.31.77.51 } }

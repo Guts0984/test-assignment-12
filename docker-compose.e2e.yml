@@ -8,6 +8,7 @@ services:
       SEED_DOCTORS: 12
       SEED_WAITLIST_ENTRIES: 0
   api:
+    ports: ["${API_PORT:-54000}:4000"]   # tests also talk to the API directly
     environment:
       HOLD_TTL_SECONDS: 8
       OFFER_TTL_SECONDS: 8
@@ -22,10 +23,13 @@ services:
       WS_MAX_SUBS_PER_CONN: 100
       ARGON_MEMORY_KIB: 4096
       ARGON_TIME_COST: 1
-      CORS_ORIGINS: http://localhost:3190
-      TRUST_PROXY_CIDRS: ""
+      CORS_ORIGINS: http://localhost:3190,http://localhost:8090
+      TRUST_PROXY_CIDRS: 172.16.0.0/12
   worker:
     environment:
       HOLD_TTL_SECONDS: 8
       OFFER_TTL_SECONDS: 8
       WORKER_RECONCILE_MS: 1000
+  nginx:
+    # same routing, edge limits lifted: all browsers of the suite share one source address
+    volumes: ["./infra/nginx/nginx.e2e.conf:/etc/nginx/nginx.conf:ro"]

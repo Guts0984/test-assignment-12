@@ -151,13 +151,13 @@ describe('sick day emails (acceptance 13)', () => {
     const q15 = w.q15;
     for (const [i, tm] of times.entries()) {
       const actor = P(20 + i);
-      const h = must(await holdSlot(makeCtx(t.db, realClock), actor, { clinicId: w.kyiv, doctorId: w.kyivDoctors[5] as string, serviceId: q15, startsAt: at(futureWorkday(40), tm) }));
+      const h = must(await holdSlot(makeCtx(t.db, realClock), actor, { clinicId: w.kyiv, doctorId: w.kyivDoctors[5] as string, serviceId: q15, startsAt: at(futureWorkday(27), tm) }));
       must(await confirmBooking(makeCtx(t.db, realClock), actor, { appointmentId: h.id, idempotencyKey: `sick-${i}` }));
     }
     await clearMails(); // booking confirmations are not what we count
     await t.db.execute(sql`UPDATE scheduled_tasks SET status = 'cancelled' WHERE kind = 'email.booking_confirmed'`);
     await Promise.all([spawn(), spawn(), spawn()]);
-    const mk = () => markDoctorSick(makeCtx(t.db, realClock), w.registrar.kyiv, { doctorId: w.kyivDoctors[5] as string, localDate: futureWorkday(40) });
+    const mk = () => markDoctorSick(makeCtx(t.db, realClock), w.registrar.kyiv, { doctorId: w.kyivDoctors[5] as string, localDate: futureWorkday(27) });
     expect(must(await mk()).cancelled).toBe(12);
     const sickMails = await waitForMails(12, 20_000, (m) => m.Subject.includes('лікар хворіє'));
     expect(sickMails).toHaveLength(12);

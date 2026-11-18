@@ -331,4 +331,4 @@ Each block includes its own tests, CI job, Dockerfile where it has a runtime, an
 
 ---
 
-After you approve this, I'll `git init` and start with block 1.
+**Status:** all seven blocks are implemented; see README for what was built and how each acceptance check is verified. Deviations from this plan: no Turborepo (`pnpm -r`), random UUIDs instead of UUIDv7, the domain/worker/api blocks were committed separately from the nginx/edge block, and the web app calls queries with POST only.

@@ -1,11 +1,92 @@
-# Clinic network — online booking
+# Clinic network: online booking
 
-Work in progress; see [plan.md](plan.md). The full README (run, grid algorithm, statuses, Postgres vs Redis, DST, indexes, decisions) is finished in the last block.
+Three clinics (Київ `Europe/Kyiv`, Львів `Europe/Kyiv`, Варшава `Europe/Warsaw`). Patients book, move and cancel visits and join a waiting list; registrars run schedules and the day board; doctors see their day; the manager sees a report. Built to the test assignment in `test-assignment-12.md`; the plan and its decisions are in [plan.md](plan.md).
+
+## Run it
 
 ```
-cp .env.example .env
-pnpm install && pnpm build && pnpm test
+cp .env.example .env && docker compose up --build
 ```
+
+Nothing else: `db-init` applies migrations and seeds once (3 clinics, 40 doctors, 15 services, 20 000 patients, 150 000 appointments over 180 days; ~30 s), then `api`, `worker`, `web` and `nginx` start.
+
+| What | Where |
+| --- | --- |
+| Website (nginx → web, `/graphql` → api, one origin) | http://localhost:8090 (`HTTP_PORT`) |
+| Mail stub: SMTP on 1025, every email shown on a page | http://localhost:8025 |
+| More workers | `docker compose up --scale worker=3` |
+
+**Demo logins** (password = `SEED_PASSWORD` in `.env`, default `Demo-Passw0rd!`): `manager@demo.local`, `registrar.kyiv@demo.local`, `registrar.lviv@demo.local`, `registrar.warsaw@demo.local`, `doctor01@demo.local` … `doctor40@demo.local`, `patient00001@demo.local` … `patient18000@demo.local` (the other 2 000 patients are phone-only), or sign up on the site.
+
+## Tests
+
+```
+pnpm install && pnpm build
+pnpm lint && pnpm typecheck && pnpm test          # shared, db, domain, worker, api, web unit; Docker needed (Testcontainers)
+pnpm --filter @clinic/web lint:fsd                # Feature-Sliced Design rules
+pnpm --filter @clinic/api schema && git diff --exit-code apps/api/schema.gql
+pnpm --filter @clinic/web codegen && git diff --exit-code apps/web/src/shared/api/generated
+```
+
+End-to-end (Playwright, real stack, 8-second holds): see the Web section. Full-stack abuse check through nginx: `infra/attack/run.sh` (below). CI runs all of it on every commit (`.github/workflows/ci.yml`).
+
+## Architecture in one page
+
+`apps/api` (NestJS GraphQL) · `apps/worker` (NestJS + BullMQ) · `apps/web` (Next.js, FSD) · `packages/shared` (Zod schemas, rules, time/format helpers) · `packages/db` (schema, migrations, seed) · `packages/domain` (booking engine, plain functions). Classes exist only where NestJS needs them (enforced by ESLint); everything else is functions.
+
+**Postgres vs Redis.** Postgres is the source of truth for everything, including the ledger of future work (`scheduled_tasks`). Redis only holds a schedule (BullMQ delayed jobs), rate-limit counters and live-event pub/sub. After `FLUSHALL` the workers copy pending ledger tasks back into Redis (on `NOTIFY`, at boot, every 15 s) and run each exactly once through `FOR UPDATE SKIP LOCKED`. Details and tests: *Worker*.
+
+**Time zones and daylight saving.** Instants are `timestamptz`; wall-clock schedules (`time` columns) are interpreted in the clinic's IANA zone. The grid converts local → instant per working interval and skips wall times that do not exist (spring-forward gap) or offers the first occurrence of a repeated one (fall-back). The 24 h reminder is "the same clinic wall-clock time on the previous day", the 2 h reminder is `start − 2 h`; neither shifts by an hour across the change. The UI shows the API's clinic `localTime`, never a browser conversion (a Playwright test runs a New York browser against Warsaw). Tests: DST tables for both zones and both nights, a property test of the grid against a naive oracle on DST days, reminder instants.
+
+**Indexes and constraints that carry the invariants** (all in `packages/db/drizzle/0001_constraints.sql`, see *Database*): three exclusion constraints on `appointments` (doctor, UZI room, patient), a partial unique index (patient, doctor, local day), the status-transition trigger, append-only history, covering index `appointments_local_date_cov_idx` for the report, `(doctor_id, starts_at)` for the grid, partial indexes for hold expiry, waitlist queue and due tasks. `EXPLAIN` assertions are in `packages/db/test/perf.test.ts`.
+
+**Performance on the full seed:** availability for a service across a city for 14 days ≈ 10–30 ms through nginx; the 90-day report ≈ 35 ms (budget 300 ms).
+
+## Edge (nginx) and abuse checks
+
+`infra/nginx/nginx.conf`: one origin; `/graphql` carries HTTP and WebSocket; per-IP `limit_req` (30 r/s, burst 60) and `limit_conn`; header/body timeouts; 100 KB body limit; security headers; `X-Forwarded-For` is *replaced* with the socket address, and the API trusts it only from the docker network (`TRUST_PROXY_CIDRS`). The API adds Redis-backed limits (see *API*), including WebSocket connects and subscribes.
+
+`infra/attack/run.sh` runs two containers with fixed addresses against the real edge: the attacker (172.31.77.50) floods HTTP and WebSocket for 20 s, spoofs `X-Forwarded-For`/`X-Real-IP` as the victim and brute-forces a login; the legit client (172.31.77.51) keeps using the site. Result on this stack: attacker 129 377 requests, 99.8 % answered 429, 198 login attempts throttled, 190 of 200 WebSocket opens refused; legit client 192/192 requests OK, p95 7 ms, WebSocket stayed connected.
+
+## Decisions on ambiguous points
+
+1. **24 h reminder** = same clinic wall-clock time on the previous day; **2 h** = absolute. A reminder already in the past at booking time is skipped.
+2. **Reschedule** is one atomic UPDATE of the existing visit; a move less than 24 h before the visit counts as a late cancel (history records the old and new time).
+3. **Prep time** (5 min) blocks the doctor and the UZI room after each visit; it may run into the break or past closing, the visit may not. A 15-minute visit therefore occupies a 30-minute block on the 15-minute grid.
+4. **Grid** starts are aligned to :00 :15 :30 :45 of the clinic wall clock.
+5. **Sick day** cancels without penalty, emails each patient once, and puts them first in that doctor's waiting list (priority, next 14 days). Marking twice changes nothing. Other schedule changes that would orphan booked visits are refused (`SCHEDULE_CONFLICT`).
+6. **Penalties:** the 2nd no-show or late cancel within 90 days closes *online* booking for 30 days from that moment; registrars can still book.
+7. **One live hold per patient** (a new hold releases the previous): nobody can freeze the grid. Holds count toward the 3-visit limit.
+8. **Report:** utilization = minutes of live visits ÷ working minutes (templates + exceptions − breaks); no-show / late-cancel share is over visits that were ever booked; revenue is completed visits per service and currency (UAH and PLN are never summed).
+9. **Waiting-list offers** are held rows, handed over inside the transaction that frees the time; unsuitable people are skipped, not removed; a patient already holding an offer is not given another at once; offers bypass the online block (the clinic initiated them).
+10. **Seed capacity:** the rules cap live visits at ~65 000 in 180 days for 40 doctors, so ~85 000 of the 150 000 appointments are cancelled rows. Upcoming days are filled less (45 %) so the demo grid has free time.
+11. **No email verification** at sign-up (no external services allowed); all mail goes to the stub.
+12. **Clock:** the engine uses an injected clock (tests move time); servers are assumed NTP-synced.
+13. **Extra compose services:** `db-init` (one-shot) and `nginx` next to the required six.
+
+## Acceptance checklist → where it is verified
+
+| # | Check | Verified by |
+| --- | --- | --- |
+| 1 | `cp .env.example .env && docker compose up --build` | clean-checkout run (CI job `stack`) |
+| 2 | typecheck, lint, codegen unchanged, tests, CI | `ci.yml` |
+| 3 | hold → confirm; second browser loses the time without reload | `e2e/booking.spec.ts` (1), `api/test/subscriptions.test.ts` |
+| 4 | 20 patients, one time | `domain/booking.test.ts`, `api/concurrency.test.ts`, `db/invariants.test.ts` (real connections) |
+| 5 | two doctors, one UZI room | same files, "ultrasound" cases |
+| 6 | hold not confirmed; late confirm refused | `domain/booking.test.ts` (±1 ms), `worker/flows.test.ts`, `e2e/booking.spec.ts` (2) |
+| 7 | reschedule into a just-taken time | `domain/reschedule-cancel.test.ts`, `api/concurrency.test.ts` |
+| 8 | cancel with waiting list of 3; first silent | `domain/waitlist.test.ts`, `worker/flows.test.ts`, `e2e/waitlist.spec.ts` |
+| 9 | reminders after reschedule / cancel | `domain/reschedule-cancel.test.ts`, `worker/delivery.test.ts` |
+| 10 | `FLUSHALL`, worker restart | `worker/delivery.test.ts`, `worker/flows.test.ts` |
+| 11 | three workers | `worker/delivery.test.ts`, `e2e/zz-scale.spec.ts` (compose `--scale worker=3`) |
+| 12 | New York → Warsaw; DST night | `shared/time.test.ts`, `domain/grid.test.ts`, `e2e/booking.spec.ts` (5) |
+| 13 | sick day with 12 visits, twice | `domain/sick-attendance.test.ts`, `worker/flows.test.ts`, `e2e/zz-scale.spec.ts` |
+| 14 | 2 no-shows → online closed, registrar books | `domain/reschedule-cancel.test.ts` |
+| 15 | foreign visit / clinic / patient, subscriptions | `api/authorization.test.ts`, `api/subscriptions.test.ts` |
+| 16 | depth 15; list of 50 with relations | `api/security.test.ts` |
+| 17 | search 14 days and 90-day report < 300 ms; URL state | `db/perf.test.ts`, `domain/perf.test.ts`, `e2e/booking.spec.ts` (4), `e2e/staff.spec.ts` (manager) |
+| 18 | `uk`, `en`, `pl` | `web/messages.test.ts`, `shared/format.test.ts`, `e2e/booking.spec.ts` (6) |
+| 19 | README | this file |
 
 ## Database (`packages/db`)
 

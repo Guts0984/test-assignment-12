@@ -47,3 +47,25 @@ jobs:
       - uses: actions/checkout@v4
       - run: cp .env.example .env
       - run: docker compose up --build --exit-code-from db-init db-init
+  stack:
+    # clean checkout: the documented command, then the browser suite, then the abuse check through nginx
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 24, cache: pnpm }
+      - run: cp .env.example .env
+      - run: docker compose -f docker-compose.yml -f docker-compose.e2e.yml up -d --build --scale worker=3 --wait
+      - run: pnpm install --frozen-lockfile && pnpm --filter @clinic/shared build
+      - run: pnpm --filter @clinic/web exec playwright install --with-deps chromium
+      - run: pnpm --filter @clinic/web e2e
+        env:
+          E2E_BASE_URL: http://localhost:8090
+          E2E_API_URL: http://localhost:8090/graphql
+          E2E_MAIL_URL: http://localhost:8025
+      - run: docker compose up -d --no-deps api nginx   # production edge settings
+      - run: ATTACK_SECONDS=20 infra/attack/run.sh
+      - if: failure()
+        run: docker compose logs --tail=200
