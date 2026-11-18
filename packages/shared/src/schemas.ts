@@ -9,15 +9,35 @@ import {
 import { daysBetween } from './time.js';
 
 export const idSchema = z.string().uuid();
+/** Years the clinic can sensibly talk about; 0000 / 9999 reach Postgres edge cases and mean nothing here. */
+export const MIN_DATE = '2000-01-01';
+export const MAX_DATE = '2100-12-31';
 export const localDateSchema = z
   .string()
   .regex(/^\d{4}-\d{2}-\d{2}$/, 'Expected YYYY-MM-DD')
   .refine((s) => {
     const d = new Date(`${s}T00:00:00Z`);
     return !Number.isNaN(d.getTime()) && d.toISOString().startsWith(s);
-  }, 'Not a real calendar date');
+  }, 'Not a real calendar date')
+  .refine((s) => s >= MIN_DATE && s <= MAX_DATE, `Date must be between ${MIN_DATE} and ${MAX_DATE}`);
+
+/**
+ * Text Postgres or the UI cannot sensibly hold: NUL and other control characters (newline and tab
+ * excluded where `allowWhitespace`), and lone surrogates (invalid UTF-8 once encoded).
+ */
+// eslint-disable-next-line no-control-regex
+const CONTROL = /[\u0000-\u001f\u007f-\u009f]/;
+// eslint-disable-next-line no-control-regex
+const CONTROL_EXCEPT_WS = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/;
+const LONE_SURROGATE = /[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/;
+export const hasForbiddenText = (s: string, allowWhitespace = false): boolean =>
+  (allowWhitespace ? CONTROL_EXCEPT_WS : CONTROL).test(s) || LONE_SURROGATE.test(s);
+const cleanText = (allowWhitespace = false) => (s: string): boolean => !hasForbiddenText(s, allowWhitespace);
 export const localTimeSchema = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Expected HH:mm');
-export const instantSchema = z.iso.datetime({ offset: true }).transform((s) => new Date(s));
+export const instantSchema = z.iso
+  .datetime({ offset: true })
+  .transform((s) => new Date(s))
+  .refine((d) => d.getUTCFullYear() >= 2000 && d.getUTCFullYear() <= 2100, 'Time is out of range');
 export const localeSchema = z.enum(LOCALES);
 
 const emailSchema = z.string().trim().toLowerCase().max(254).pipe(z.email());
@@ -28,7 +48,7 @@ export const phoneSchema = z
   .max(32)
   .transform((s) => s.replace(/[\s\-()]/g, ''))
   .pipe(z.string().regex(/^\+\d{8,15}$/, 'Use international format, e.g. +380501234567'));
-const personNameSchema = z.string().trim().min(2).max(100);
+const personNameSchema = z.string().trim().min(2).max(100).refine(cleanText(), 'Contains forbidden characters');
 
 export const signUpSchema = z.object({
   email: emailSchema,
@@ -82,7 +102,7 @@ export type RescheduleInput = z.infer<typeof rescheduleSchema>;
 
 export const cancelSchema = z.object({
   appointmentId: idSchema,
-  reason: z.string().trim().max(500).optional(),
+  reason: z.string().trim().max(500).refine(cleanText(true), 'Contains forbidden characters').optional(),
 });
 
 export const joinWaitlistSchema = z

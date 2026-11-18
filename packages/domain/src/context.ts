@@ -48,7 +48,7 @@ export const mapDbError = (e: unknown): AppError | null => {
       return appError('SLOT_TAKEN', 'This time is already taken');
     case PG.DEADLOCK:
     case PG.SERIALIZATION:
-      // Lost a lock race against another booking for the same resources: nothing was booked.
+      // Still failing after the retries in `transact`: nothing was booked.
       return appError('SLOT_TAKEN', 'This time was just taken, please pick another');
     case PG.UNIQUE_VIOLATION:
       if (pg.constraint === 'appointments_patient_doctor_day_uq')
@@ -67,6 +67,16 @@ export const mapDbError = (e: unknown): AppError | null => {
   }
 };
 
+/** Deadlock / serialization failure: nothing was written, the whole transaction may simply be run again. */
+export const isRetryable = (e: unknown): boolean => {
+  const pg = asPgError(e);
+  return !!pg && (pg.code === PG.DEADLOCK || pg.code === PG.SERIALIZATION);
+};
+
+const MAX_ATTEMPTS = 5;
+const backoff = (attempt: number): Promise<void> =>
+  new Promise((r) => setTimeout(r, Math.random() * 10 * attempt + 1));
+
 export type TxEnv = { readonly tx: Tx; readonly now: Date; readonly ctx: Ctx; readonly actor: Actor };
 
 /**
@@ -80,21 +90,28 @@ export const transact = async <T>(
   fn: (env: TxEnv) => Promise<Result<T, AppError>>,
 ): Promise<Result<T, AppError>> => {
   const now = ctx.now();
-  try {
-    return await ctx.db.transaction(async (tx) => {
-      await setActorContext(tx, {
-        actor: { userId: actor.userId, role: actor.role },
-        now,
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await ctx.db.transaction(async (tx) => {
+        await setActorContext(tx, {
+          actor: { userId: actor.userId, role: actor.role },
+          now,
+        });
+        const r = await fn({ tx, now, ctx, actor });
+        if (!r.ok) throw { [ABORT]: r.error } satisfies Abort;
+        return r;
       });
-      const r = await fn({ tx, now, ctx, actor });
-      if (!r.ok) throw { [ABORT]: r.error } satisfies Abort;
-      return r;
-    });
-  } catch (e) {
-    if (isAbort(e)) return err(e[ABORT]);
-    const mapped = mapDbError(e);
-    if (mapped) return err(mapped);
-    throw e;
+    } catch (e) {
+      if (isAbort(e)) return err(e[ABORT]);
+      // a lost lock race (deadlock victim): rolled back completely, so run it again a few times
+      if (isRetryable(e) && attempt < MAX_ATTEMPTS) {
+        await backoff(attempt);
+        continue;
+      }
+      const mapped = mapDbError(e);
+      if (mapped) return err(mapped);
+      throw e;
+    }
   }
 };
 

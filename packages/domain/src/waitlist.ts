@@ -11,10 +11,11 @@ import {
   type JoinWaitlistInput,
   type Result,
 } from '@clinic/shared';
-import { advisoryLock, mapDbError, setHistoryMeta, transact, type Actor, type Ctx, type TxEnv } from './context.js';
+import { advisoryLock, isRetryable, mapDbError, setHistoryMeta, transact, type Actor, type Ctx, type TxEnv } from './context.js';
 import {
   checkFutureLimit,
-  getAppointment,
+  getAppointmentUnderDayLock,
+  lockDoctorDay,
   lockPatient,
   loadClinic,
   notifyPatient,
@@ -100,6 +101,10 @@ export const offerFreedSlot = async (
   const clinic = await loadClinic(tx, freed.clinicId);
   if (!clinic) return null;
   const localDate = localDateOf(freed.startsAt, clinic.timeZone);
+  // The doctor-day lock (a no-op when the caller already holds it, as every release does) makes the
+  // schedule check below see a sick mark that committed before us, and a sick mark that is still
+  // running makes us wait and then find the day closed: no offers on a sick day.
+  await lockDoctorDay(tx, freed.doctorId, localDate);
   // one handoff at a time per doctor keeps the queue order exact
   await advisoryLock(tx, 'waitlist-handoff', freed.doctorId);
 
@@ -108,7 +113,8 @@ export const offerFreedSlot = async (
       SELECT e.id, e.patient_id, e.service_id FROM waitlist_entries e
       WHERE e.doctor_id = ${freed.doctorId}::uuid AND e.status = 'active'
         AND e.from_date <= ${localDate}::date AND e.to_date >= ${localDate}::date
-        AND NOT EXISTS (SELECT 1 FROM waitlist_offers o WHERE o.entry_id = e.id AND o.status = 'pending')
+        AND NOT EXISTS (SELECT 1 FROM waitlist_offers o JOIN waitlist_entries e2 ON e2.id = o.entry_id
+                        WHERE e2.patient_id = e.patient_id AND o.status = 'pending')
         AND NOT EXISTS (
           SELECT 1 FROM waitlist_offers o JOIN appointments a ON a.id = o.appointment_id
           WHERE o.entry_id = e.id AND a.doctor_id = ${freed.doctorId}::uuid
@@ -131,6 +137,13 @@ export const offerFreedSlot = async (
       await tx.execute(sql`SELECT id FROM patients WHERE id = ${c.patient_id}::uuid FOR UPDATE SKIP LOCKED`)
     ).rows;
     if (locked.length === 0) continue;
+    // one pending offer per patient, re-checked now that the patient is locked: an offer for another
+    // doctor may have been committed after the candidate list was read
+    const already = (
+      await tx.execute(sql`SELECT 1 FROM waitlist_offers o JOIN waitlist_entries e ON e.id = o.entry_id
+        WHERE e.patient_id = ${c.patient_id}::uuid AND o.status = 'pending' LIMIT 1`)
+    ).rows;
+    if (already.length > 0) continue;
     const limit = await checkFutureLimit(env, c.patient_id, null);
     if (!limit.ok) continue;
 
@@ -193,6 +206,7 @@ export const offerFreedSlot = async (
     } catch (e) {
       // the time is not actually usable for this person (partially busy, overlaps their own
       // visit, daily limit): the savepoint is rolled back, try the next one
+      if (isRetryable(e)) throw e; // a lost lock race is not "this person cannot have the time"
       const mapped = mapDbError(e);
       if (mapped || asPgError(e)) continue;
       throw e;
@@ -219,7 +233,8 @@ const closeOffer = async (
     .update(schema.appointments)
     .set({ status: 'cancelled', cancelledAt: now, updatedAt: now })
     .where(and(eq(schema.appointments.id, appt.id), eq(schema.appointments.status, 'held')));
-  await tx.execute(sql`UPDATE scheduled_tasks SET status = 'cancelled' WHERE status = 'pending' AND payload->>'offerId' = ${offer.id} AND kind IN (${cancelKinds})`);
+  await tx.execute(sql`UPDATE scheduled_tasks SET status = 'cancelled' WHERE id IN (
+    SELECT id FROM scheduled_tasks WHERE status = 'pending' AND payload->>'offerId' = ${offer.id} AND kind IN (${cancelKinds}) FOR UPDATE SKIP LOCKED)`);
   const next = await offerFreedSlot(env, { doctorId: appt.doctorId, clinicId: appt.clinicId, startsAt: appt.startsAt });
   return { next };
 };
@@ -233,12 +248,14 @@ export const expireOffer = (
 ): Promise<Result<{ outcome: OfferOutcome; next: WaitlistOffer | null }, AppError>> =>
   transact<{ outcome: OfferOutcome; next: WaitlistOffer | null }>(ctx, { userId: null, role: 'system' }, async (env) => {
     const { tx, now } = env;
-    const rows = await tx.select().from(schema.waitlistOffers).where(eq(schema.waitlistOffers.id, offerId)).for('update');
-    const offer = rows[0];
+    const first = (await tx.select().from(schema.waitlistOffers).where(eq(schema.waitlistOffers.id, offerId)))[0];
+    if (!first) return err(appError('NOT_FOUND', 'Offer not found'));
+    // doctor-day -> patient -> visit row (as everywhere), only then the offer row
+    const appt = await getAppointmentUnderDayLock(tx, first.appointmentId);
+    const offer = (await tx.select().from(schema.waitlistOffers).where(eq(schema.waitlistOffers.id, offerId)).for('update'))[0];
     if (!offer) return err(appError('NOT_FOUND', 'Offer not found'));
     if (offer.status !== 'pending') return ok({ outcome: 'not_pending' as const, next: null });
     if (offer.expiresAt.getTime() > now.getTime()) return ok({ outcome: 'not_due' as const, next: null });
-    const appt = await getAppointment(tx, offer.appointmentId);
     if (!appt || appt.status !== 'held') return ok({ outcome: 'not_pending' as const, next: null });
     const { next } = await closeOffer(env, offer, appt, 'expired', 'offer_expired');
     return ok({ outcome: 'closed' as const, next });
@@ -251,10 +268,11 @@ export const declineOffer = (
 ): Promise<Result<{ next: WaitlistOffer | null }, AppError>> =>
   transact(ctx, actor, async (env) => {
     const { tx, now } = env;
-    const rows = await tx.select().from(schema.waitlistOffers).where(eq(schema.waitlistOffers.id, offerId)).for('update');
-    const offer = rows[0];
+    const first = (await tx.select().from(schema.waitlistOffers).where(eq(schema.waitlistOffers.id, offerId)))[0];
+    if (!first) return err(appError('NOT_FOUND', 'Offer not found'));
+    const appt = await getAppointmentUnderDayLock(tx, first.appointmentId);
+    const offer = (await tx.select().from(schema.waitlistOffers).where(eq(schema.waitlistOffers.id, offerId)).for('update'))[0];
     if (!offer) return err(appError('NOT_FOUND', 'Offer not found'));
-    const appt = await getAppointment(tx, offer.appointmentId);
     if (!appt || actor.role !== 'patient' || appt.patientId !== actor.patientId) return err(appError('NOT_FOUND', 'Offer not found'));
     if (offer.status !== 'pending' || appt.status !== 'held') return err(appError('INVALID_TRANSITION', 'The offer is no longer open'));
     if (offer.expiresAt.getTime() <= now.getTime()) return err(appError('OFFER_EXPIRED', 'The offer has expired'));

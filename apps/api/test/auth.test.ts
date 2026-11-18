@@ -119,12 +119,17 @@ describe('credentials', () => {
     expect((orphans.rows[0] as { n: number }).n).toBe(0);
   });
 
-  it('a patient registered by phone (no account) is claimed by signing up with that number', async () => {
-    await f.t.db.execute(sql`INSERT INTO patients (full_name, phone) VALUES ('Телефонний', '+380509999003')`);
-    const r = await gql<{ signUp: { patientId: string } }>(f.api, SIGN_UP, { i: { email: 'phone@t.io', password: 'a-long-enough-pass', fullName: 'Телефонний', phone: '+380509999003' } });
-    expect(r.body.errors).toBeUndefined();
+  it('a patient registered by phone (no account) is NOT claimed by signing up with that number', async () => {
+    const ins = await f.t.db.execute(sql`INSERT INTO patients (full_name, phone, email) VALUES ('Телефонний', '+380509999003', 'orig@t.io') RETURNING id`);
+    const pid = String((ins.rows[0] as { id: string }).id);
+    const r = await gql(f.api, SIGN_UP, { i: { email: 'phone@t.io', password: 'a-long-enough-pass', fullName: 'Телефонний', phone: '+380509999003' } });
+    expect(codeOf(r)).toBe('BAD_USER_INPUT');
+    expect(r.body.errors?.[0]?.extensions?.fieldErrors).toHaveProperty('phone');
     const n = await f.t.db.execute(sql`SELECT count(*)::int AS n FROM patients WHERE phone = '+380509999003'`);
     expect((n.rows[0] as { n: number }).n).toBe(1);
+    const row = (await f.t.db.execute(sql`SELECT user_id, email FROM patients WHERE id = ${pid}::uuid`)).rows[0] as { user_id: string | null; email: string };
+    expect(row).toEqual({ user_id: null, email: 'orig@t.io' });
+    expect(((await f.t.db.execute(sql`SELECT count(*)::int AS n FROM users WHERE email = 'phone@t.io'`)).rows[0] as { n: number }).n).toBe(0);
   });
 
   it('validation errors name the fields', async () => {

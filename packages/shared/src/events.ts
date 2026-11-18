@@ -21,6 +21,8 @@ export const clinicEventSchema = z.discriminatedUnion('type', [
     clinicId: z.string().uuid(),
     doctorId: z.string().uuid(),
   }),
+  /** A session ended (sign-out): every api replica closes the sockets that were opened with it. Carries the token's hash, never the token. */
+  z.object({ type: z.literal('session_revoked'), tokenHash: z.string().regex(/^[0-9a-f]{64}$/) }),
   z.object({ type: z.literal('offer'), offerId: z.string().uuid(), patientId: z.string().uuid() }),
 ]);
 export type ClinicEvent = z.infer<typeof clinicEventSchema>;

@@ -26,6 +26,7 @@ export const apiEnv = (dbUrl: string, over: Record<string, string> = {}): ApiEnv
     RATE_SIGNIN_IP_PER_MIN: '100000',
     RATE_SIGNUP_PER_HOUR: '100000',
     RATE_HOLD_PER_MIN: '100000',
+    RATE_COST_PER_MIN: '100000000',
     ...over,
   });
 

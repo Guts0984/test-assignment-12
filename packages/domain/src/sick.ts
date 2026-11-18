@@ -2,7 +2,7 @@ import { sql } from 'drizzle-orm';
 import { schema } from '@clinic/db';
 import { addDays, isoWeekday, ok, type AppError, type Result } from '@clinic/shared';
 import { fail, setHistoryMeta, transact, type Actor, type Ctx } from './context.js';
-import { lockDoctorDay, notifyPatient } from './core.js';
+import { lockDoctorDay, lockPatientsSorted, notifyPatient } from './core.js';
 import { REMINDER_KINDS, cancelTasksOf, enqueueTask } from './tasks.js';
 
 export type SickResult = { cancelled: number; alreadyMarked: boolean };
@@ -51,10 +51,17 @@ export const markDoctorSick = (
       RETURNING id`);
     const alreadyMarked = upsert.rows.length === 0;
 
+    // Lock order: doctor-day (held) -> patient rows -> appointment rows. Under the day lock nobody can
+    // add visits to this day, so the set of patients is stable: read it, lock those patients in id
+    // order, and only then lock (and re-read) the visits.
+    const affected = (await tx.execute(sql`
+      SELECT DISTINCT patient_id FROM appointments
+      WHERE doctor_id = ${input.doctorId}::uuid AND local_date = ${input.localDate}::date AND status IN ('held', 'booked')`)).rows as { patient_id: string }[];
+    await lockPatientsSorted(tx, affected.map((r) => r.patient_id));
     const victims = (await tx.execute(sql`
       SELECT id, patient_id, service_id, status, kind FROM appointments
       WHERE doctor_id = ${input.doctorId}::uuid AND local_date = ${input.localDate}::date AND status IN ('held', 'booked')
-      ORDER BY starts_at FOR UPDATE`)).rows as { id: string; patient_id: string; service_id: string; status: string; kind: string }[];
+      ORDER BY starts_at, id FOR UPDATE`)).rows as { id: string; patient_id: string; service_id: string; status: string; kind: string }[];
 
     await setHistoryMeta(tx, now, actor, { reason: 'doctor_sick' });
     for (const v of victims) {
@@ -62,7 +69,7 @@ export const markDoctorSick = (
       await cancelTasksOf(tx, v.id, [...REMINDER_KINDS, 'hold.expire']);
       if (v.kind === 'waitlist_offer') {
         await tx.execute(sql`UPDATE waitlist_offers SET status = 'expired', responded_at = ${now.toISOString()}::timestamptz WHERE appointment_id = ${v.id}::uuid AND status = 'pending'`);
-        await tx.execute(sql`UPDATE scheduled_tasks SET status = 'cancelled' WHERE status = 'pending' AND payload->>'appointmentId' = ${v.id} AND kind IN ('offer.expire', 'email.waitlist_offer')`);
+        await cancelTasksOf(tx, v.id, ['offer.expire', 'email.waitlist_offer']);
       }
       if (v.status !== 'booked') continue;
       await enqueueTask(tx, { kind: 'email.sick_cancel', runAt: now, dedupeKey: `email.sick_cancel:${v.id}`, payload: { appointmentId: v.id } });

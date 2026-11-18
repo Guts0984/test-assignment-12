@@ -25,6 +25,7 @@ export type VisibleAppointment = ReturnType<typeof appointmentFromSql>;
 
 export type Limiters = {
   global: Limiter;
+  cost: Limiter;
   signIn: Limiter;
   signInIp: Limiter;
   signUp: Limiter;

@@ -10,6 +10,8 @@ import {
   reportPeriodSchema,
   confirmBookingSchema,
   scheduleExceptionSchema,
+  cancelSchema,
+  hasForbiddenText,
 } from '../src/index.js';
 
 const uuid = '0190c0de-0000-7000-8000-000000000001';
@@ -103,5 +105,36 @@ describe('report period', () => {
   it('limits the span', () => {
     expect(reportPeriodSchema.safeParse({ from: '2026-01-01', to: '2026-03-31' }).success).toBe(true);
     expect(reportPeriodSchema.safeParse({ from: '2020-01-01', to: '2026-03-31' }).success).toBe(false);
+  });
+});
+
+describe('input the database cannot store is a validation error, never a 500', () => {
+  const base = { email: 'a@b.io', password: 'a-long-enough-pass', phone: '+380501234567' };
+  it('control characters and lone surrogates are refused in names', () => {
+    for (const bad of ['a\u0000b', '\u0000\u0000', 'x\u0001y', 'bad\ud800name', 'tab\there', 'line\nbreak', '\u0085nel', '\u007fdel']) {
+      expect(signUpSchema.safeParse({ ...base, fullName: bad }).success, JSON.stringify(bad)).toBe(false);
+    }
+    expect(signUpSchema.safeParse({ ...base, fullName: 'Олена Коваленко-Шевченко' }).success).toBe(true);
+    expect(signUpSchema.safeParse({ ...base, fullName: 'Zoë 😀 Nowak' }).success).toBe(true);
+  });
+  it('calendar dates outside 2000..2100 are refused, the edges are accepted', () => {
+    for (const bad of ['0000-01-01', '9999-12-31', '0001-01-01', '1999-12-31', '2101-01-01', '2026-02-30']) {
+      expect(localDateSchema.safeParse(bad).success, bad).toBe(false);
+    }
+    for (const ok of ['2000-01-01', '2026-02-28', '2100-12-31']) expect(localDateSchema.safeParse(ok).success, ok).toBe(true);
+  });
+  it('instants outside 2000..2100 are refused', () => {
+    const q = { clinicId: uuid, doctorId: uuid, serviceId: uuid };
+    for (const bad of ['0000-01-01T00:00:00Z', '9999-12-31T23:45:00Z', '1999-12-31T23:45:00Z']) expect(holdSlotSchema.safeParse({ ...q, startsAt: bad }).success, bad).toBe(false);
+    expect(holdSlotSchema.safeParse({ ...q, startsAt: '2026-06-01T09:00:00Z' }).success).toBe(true);
+  });
+  it('cancel reasons may contain newlines but not NUL', () => {
+    expect(cancelSchema.safeParse({ appointmentId: uuid, reason: 'line1\nline2' }).success).toBe(true);
+    expect(cancelSchema.safeParse({ appointmentId: uuid, reason: 'a\u0000b' }).success).toBe(false);
+  });
+  it('hasForbiddenText flags exactly the unsafe strings', () => {
+    expect(hasForbiddenText('a\u0000')).toBe(true);
+    expect(hasForbiddenText('\ud800')).toBe(true);
+    expect(hasForbiddenText('normal text, 123')).toBe(false);
   });
 });

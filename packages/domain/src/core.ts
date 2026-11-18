@@ -62,6 +62,41 @@ export const getAppointmentLockingPatient = async (tx: Tx, id: string): Promise<
   return getAppointment(tx, id, true);
 };
 
+/** Locks several doctor-days in one deterministic order (sorted), so two flows that need the same set cannot deadlock. */
+export const lockDoctorDays = async (tx: Tx, days: readonly { doctorId: string; localDate: string }[]): Promise<void> => {
+  const keys = [...new Set(days.map((d) => `${d.doctorId}:${d.localDate}`))].sort();
+  for (const key of keys) await advisoryLock(tx, 'doctor-day', key);
+};
+
+/** Locks several patient rows in id order (FOR UPDATE), so flows touching the same patients cannot deadlock. */
+export const lockPatientsSorted = async (tx: Tx, patientIds: readonly string[]): Promise<void> => {
+  const ids = [...new Set(patientIds)].sort();
+  if (ids.length === 0) return;
+  await tx.execute(sql`SELECT id FROM patients WHERE id IN (${sql.join(ids.map((i) => sql`${i}::uuid`), sql`, `)}) ORDER BY id FOR UPDATE`);
+};
+
+/**
+ * Full lock order for changing one visit: peek it unlocked, take the doctor-day lock of its day (and of
+ * `alsoDays` of the same doctor, e.g. the target of a reschedule), then its patient, then the row.
+ * If the visit moved to another day between the peek and the lock, the lock for the new day is taken too.
+ */
+export const getAppointmentUnderDayLock = async (
+  tx: Tx,
+  id: string,
+  alsoDays: readonly string[] = [],
+): Promise<Appointment | null> => {
+  let peek = await getAppointment(tx, id, false);
+  for (let i = 0; i < 3 && peek; i++) {
+    await lockDoctorDays(tx, [peek, ...alsoDays.map((localDate) => ({ doctorId: (peek as Appointment).doctorId, localDate }))]);
+    await lockPatient(tx, peek.patientId);
+    const a = await getAppointment(tx, id, true);
+    if (!a) return null;
+    if (a.doctorId === peek.doctorId && a.localDate === peek.localDate) return a;
+    peek = a;
+  }
+  return peek ? getAppointment(tx, id, true) : null;
+};
+
 export const getAppointment = async (tx: Tx, id: string, lock = true): Promise<Appointment | null> => {
   const q = tx.select().from(schema.appointments).where(eq(schema.appointments.id, id));
   const rows = lock ? await q.for('update') : await q;
@@ -157,7 +192,12 @@ export const validateSlot = async (
   });
 };
 
-/** Frees expired regular holds that would collide with a booking about to be made. */
+/**
+ * Frees expired regular holds that would collide with a booking about to be made. A hold swept here
+ * is NOT handed to the waiting list: it is released lazily in SQL, in favour of the booking that is
+ * being made right now (usually for the very time it blocked), and once it is cancelled the worker's
+ * `hold.expire` task finds nothing to release. Only `expireHold` (the worker) hands over expired holds.
+ */
 export const sweepExpiredHolds = async (
   { tx, now, ctx }: TxEnv,
   p: { doctorId: string; clinicId: string; patientId: string; needsUltrasound: boolean; startsAt: Date; endsAt: Date },

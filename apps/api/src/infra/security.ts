@@ -36,26 +36,47 @@ export const measure = (doc: DocumentNode, operationName?: string | null): { dep
   return acc;
 };
 
+/** The `limit` of a list, forced into [1, 1000]; anything that is not an integer counts as absent. */
+const MAX_LIMIT = 1000;
 const intArg = (node: ValueNode | undefined, variables: Record<string, unknown>): number | null => {
+  let n: number | null = null;
   if (!node) return null;
-  if (node.kind === Kind.INT) return Number(node.value);
-  if (node.kind === Kind.VARIABLE) {
+  if (node.kind === Kind.INT) n = Number(node.value);
+  else if (node.kind === Kind.VARIABLE) {
     const v = variables[node.name.value];
-    return typeof v === 'number' ? v : null;
+    n = typeof v === 'number' ? v : null;
   }
-  return null;
+  return n !== null && Number.isSafeInteger(n) ? Math.min(Math.max(n, 1), MAX_LIMIT) : null;
+};
+
+/**
+ * Base price of a root field. Everything not listed costs 1. The expensive ones run real work
+ * (a slot grid over every doctor, an aggregate over a year of visits, a clinic-wide board), so
+ * packing many aliases of them into one request is priced as the many executions it is: with the
+ * default budget of 2000, about 40 availability aliases fit in one request, 130 do not.
+ */
+export const ROOT_FIELD_COST: Readonly<Record<string, number>> = {
+  availability: 50,
+  report: 100,
+  clinicBoard: 25,
+  doctorSchedule: 25,
+  doctorWeeklySchedule: 10,
+  searchPatients: 20,
+  clinicDoctors: 5,
+  clinicServices: 5,
+  myAppointments: 5,
 };
 
 /**
  * Estimated cost: every field costs 1; a list multiplies the cost of what is selected inside it by
- * its `limit` argument (10 when absent, at most 1000). So "100 visits, each with doctor, clinic,
+ * its `limit` argument (10 when the field has no `limit` argument, 50 when it has one and none is given; always within [1, 1000]). So "100 visits, each with doctor, clinic,
  * service, patient and history" is priced as the hundreds of rows it really is.
  * Own implementation on purpose: the ready-made library loads a second copy of `graphql` and
  * cannot read this schema.
  */
 // Type inspection by shape, not `instanceof`: under some loaders (tests) the schema and this file see
 // two copies of the graphql package, and its own helpers refuse to mix them.
-type AnyType = { toString(): string; getFields?: () => Record<string, { type: AnyType }> };
+type AnyType = { toString(): string; getFields?: () => Record<string, { type: AnyType; args?: readonly { name: string }[] }> };
 const isList = (t: AnyType): boolean => /^\[/.test(String(t).replace(/!$/, ''));
 const namedOf = (t: AnyType): string => String(t).replace(/[[\]!]/g, '');
 
@@ -84,8 +105,9 @@ export const estimateCost = (schema: GraphQLSchema, doc: DocumentNode, variables
         const inner = sel.selectionSet && named?.getFields ? cost(sel.selectionSet, named, depth + 1) : 0;
         const list = isList(def.type);
         const limit = intArg(sel.arguments?.find((a) => a.name.value === 'limit')?.value, variables);
-        const mult = list ? Math.min(limit ?? 10, 1000) : 1;
-        total += 1 + inner * mult;
+        // a list that takes `limit` and gets none (or junk) is executed with its default page, priced as a full 50
+        const mult = list ? (limit ?? (def.args?.some((a) => a.name === 'limit') ? 50 : 10)) : 1;
+        total += (depth === 0 ? (ROOT_FIELD_COST[name] ?? 1) : 1) + inner * mult;
       } else if (sel.kind === Kind.INLINE_FRAGMENT) {
         const t = sel.typeCondition ? typeByName(sel.typeCondition.name.value) : parent;
         total += cost(sel.selectionSet, t?.getFields ? t : parent, depth + 1);
@@ -114,13 +136,22 @@ export const checkLimits = (schema: GraphQLSchema, doc: DocumentNode, variables:
   return null;
 };
 
-export const limitsPlugin = (getSchema: () => GraphQLSchema | null, limits: Limits): ApolloServerPlugin => ({
+/** Charges `cost` points to the caller's per-minute budget (the per-IP cost limiter). */
+export type CostBudget = { consume: (key: string, points: number) => Promise<{ ok: true } | { ok: false; retryAfterSec: number }> };
+
+export const limitsPlugin = (getSchema: () => GraphQLSchema | null, limits: Limits, budget?: CostBudget): ApolloServerPlugin<{ ip?: string }> => ({
   requestDidStart: async () => ({
-    didResolveOperation: async ({ document, request }) => {
+    didResolveOperation: async ({ document, request, contextValue }) => {
       const schema = getSchema();
       if (!schema) return;
       const e = checkLimits(schema, document, request.variables, request.operationName, limits);
       if (e) throw e;
+      if (budget) {
+        // the work an address may ask for per minute is bounded, not just the number of requests
+        const cost = estimateCost(schema, document, request.variables ?? {}, request.operationName);
+        const r = await budget.consume(contextValue.ip ?? 'unknown', cost);
+        if (!r.ok) throw gqlError('RATE_LIMITED', 'Too much work requested, slow down', { retryAfterSec: r.retryAfterSec });
+      }
     },
   }),
 });

@@ -2,7 +2,7 @@ import { eq } from 'drizzle-orm';
 import { schema } from '@clinic/db';
 import { ok, type AppError, type Result } from '@clinic/shared';
 import { fail, transact, type Actor, type Ctx } from './context.js';
-import { confirmBooking, holdSlot } from './booking.js';
+import { registrarBookingFlow } from './booking.js';
 import type { Appointment, Patient } from './core.js';
 
 /** Registrar creates (or finds, by phone) a patient who has no online account. */
@@ -25,14 +25,11 @@ export const findOrCreatePhonePatient = (
 
 /**
  * Phone booking: exactly the web path (hold, then confirm) with the same rules, performed by the
- * registrar for a patient. Only the online-booking block does not apply to registrars.
+ * registrar for a patient, in one transaction and idempotent by key. Only the online-booking block
+ * does not apply to registrars.
  */
-export const registrarBook = async (
+export const registrarBook = (
   ctx: Ctx,
   actor: Actor,
   input: { clinicId: string; doctorId: string; serviceId: string; startsAt: Date; patientId: string; idempotencyKey: string },
-): Promise<Result<Appointment, AppError>> => {
-  const held = await holdSlot(ctx, actor, input);
-  if (!held.ok) return held;
-  return confirmBooking(ctx, actor, { appointmentId: held.value.id, idempotencyKey: input.idempotencyKey });
-};
+): Promise<Result<Appointment, AppError>> => registrarBookingFlow(ctx, actor, input);

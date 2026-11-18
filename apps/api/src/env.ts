@@ -24,6 +24,8 @@ const schema = z.object({
   GQL_MAX_FIELDS: z.coerce.number().int().positive().default(400),
   BODY_LIMIT_KB: z.coerce.number().int().positive().default(100),
   RATE_GLOBAL_PER_MIN: z.coerce.number().int().positive().default(300),
+  /** Per-IP budget of estimated query cost per minute (see infra/security.ts); a normal page costs ~10-100. */
+  RATE_COST_PER_MIN: z.coerce.number().int().positive().default(20_000),
   RATE_SIGNIN_PER_MIN: z.coerce.number().int().positive().default(5),
   RATE_SIGNIN_IP_PER_MIN: z.coerce.number().int().positive().default(20),
   RATE_SIGNUP_PER_HOUR: z.coerce.number().int().positive().default(5),

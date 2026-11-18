@@ -4,7 +4,7 @@ import type { Redis } from 'ioredis';
 export type LimitRule = { points: number; durationSec: number };
 export type LimitResult = { ok: true } | { ok: false; retryAfterSec: number };
 
-export type Limiter = { consume: (key: string) => Promise<LimitResult> };
+export type Limiter = { consume: (key: string, points?: number) => Promise<LimitResult> };
 
 /**
  * A fixed-window limiter shared by all API replicas through Redis. If Redis is unreachable the
@@ -24,9 +24,9 @@ export const createLimiter = (name: string, rule: LimitRule, redis: Redis | null
       })
     : memory;
   return {
-    consume: async (key) => {
+    consume: async (key, points = 1) => {
       try {
-        await limiter.consume(key, 1);
+        await limiter.consume(key, Math.max(1, Math.ceil(points)));
         return { ok: true };
       } catch (e) {
         const ms = (e as { msBeforeNext?: number }).msBeforeNext;

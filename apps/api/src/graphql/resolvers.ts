@@ -2,7 +2,7 @@ import { Args, Context, ID, Int, Mutation, Parent, Query, ResolveField, Resolver
 import { Inject } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
 import {
-  AVAILABILITY_DAYS, addDays, availabilityQuerySchema, cancelSchema, confirmBookingSchema, holdSlotSchema, joinWaitlistSchema, markSickSchema, phoneSchema,
+  AVAILABILITY_DAYS, addDays, availabilityQuerySchema, cancelSchema, confirmBookingSchema, holdSlotSchema, joinWaitlistSchema, markSickSchema, phoneSchema, hasForbiddenText,
   registrarBookingSchema, rescheduleSchema, respondOfferSchema, reportPeriodSchema, scheduleExceptionSchema, scheduleTemplateSchema, signInSchema, signUpSchema, idSchema, type ClinicEvent,
 } from '@clinic/shared';
 import {
@@ -13,7 +13,7 @@ import { loadReport } from '@clinic/db';
 import { z } from 'zod';
 import { Public, Roles } from '../auth/roles.js';
 import { dummyHash, hashPassword, verifyPassword } from '../auth/password.js';
-import { clearCookie, createSession, findSessionUser, revokeSession, sessionCookie } from '../auth/sessions.js';
+import { clearCookie, createSession, findSessionUser, hashToken, revokeSession, sessionCookie } from '../auth/sessions.js';
 import { gqlError, parseInput, unwrap } from '../infra/errors.js';
 import { BUS, DB, DOMAIN, ENV, LIMITERS, type GqlContext, type Limiters } from '../infra/tokens.js';
 import { TOPIC, type EventBus } from '../infra/event-bus.js';
@@ -53,6 +53,7 @@ export class AuthResolver {
     @Inject(DB) private readonly db: Db,
     @Inject(LIMITERS) private readonly limits: Limiters,
     @Inject(DOMAIN) private readonly domain: Ctx,
+    @Inject(BUS) private readonly bus: EventBus,
   ) {}
 
   private argon() {
@@ -74,9 +75,12 @@ export class AuthResolver {
       const created = await this.db.transaction(async (tx) => {
         const u = await tx.execute(sql`INSERT INTO users (email, password_hash, role, created_at) VALUES (${v.email}, ${passwordHash}, 'patient', ${now.toISOString()}::timestamptz) RETURNING id`);
         const userId = String((u.rows[0] as Row)['id']);
-        // a patient record may already exist from a phone booking: claim it by phone, else create
-        const claimed = await tx.execute(sql`UPDATE patients SET user_id = ${userId}::uuid, email = ${v.email}, locale = ${v.locale}::locale WHERE phone = ${v.phone} AND user_id IS NULL RETURNING id`);
-        const pid = claimed.rows[0] ? String((claimed.rows[0] as Row)['id']) : String(((await tx.execute(sql`INSERT INTO patients (user_id, full_name, phone, email, locale, created_at) VALUES (${userId}::uuid, ${v.fullName}, ${v.phone}, ${v.email}, ${v.locale}::locale, ${now.toISOString()}::timestamptz) RETURNING id`)).rows[0] as Row)['id']);
+        // Never attach an existing patient record (made by a registrar from a phone call) to a new
+        // account because the phone number matches: anyone who knows a number could take over the
+        // visit history. A number already on file is refused; the clinic links records by hand.
+        const taken = await tx.execute(sql`SELECT 1 FROM patients WHERE phone = ${v.phone} LIMIT 1`);
+        if (taken.rows[0]) throw gqlError('BAD_USER_INPUT', 'This phone number cannot be used', { fieldErrors: { phone: 'already in use' } });
+        const pid = String(((await tx.execute(sql`INSERT INTO patients (user_id, full_name, phone, email, locale, created_at) VALUES (${userId}::uuid, ${v.fullName}, ${v.phone}, ${v.email}, ${v.locale}::locale, ${now.toISOString()}::timestamptz) RETURNING id`)).rows[0] as Row)['id']);
         return { userId, pid };
       });
       const s = await createSession(this.db, created.userId, this.env.SESSION_TTL_HOURS, now);
@@ -111,7 +115,11 @@ export class AuthResolver {
 
   @Public() @Mutation(() => Boolean)
   async signOut(@Context() c: GqlContext): Promise<boolean> {
-    if (c.token) await revokeSession(this.db, c.token, this.domain.now());
+    if (c.token) {
+      await revokeSession(this.db, c.token, this.domain.now());
+      // open sockets that authenticated with this session are closed by every api replica
+      await this.bus.publish({ type: 'session_revoked', tokenHash: hashToken(c.token) });
+    }
     c.res?.append('Set-Cookie', clearCookie(this.env.COOKIE_SECURE));
     return true;
   }
@@ -259,7 +267,7 @@ export class BookingResolver {
       WHERE a.patient_id = ${a.patientId}::uuid
         AND ${upcoming
           ? sql`a.starts_at >= ${now.toISOString()}::timestamptz AND (a.status IN ('booked','checked_in') OR (a.status = 'held' AND a.kind = 'regular' AND a.hold_expires_at > ${now.toISOString()}::timestamptz))`
-          : sql`(a.starts_at < ${now.toISOString()}::timestamptz AND a.status <> 'held') OR (a.status = 'cancelled' AND a.booked_at IS NOT NULL)`}
+          : sql`((a.starts_at < ${now.toISOString()}::timestamptz AND a.status <> 'held') OR (a.status = 'cancelled' AND a.booked_at IS NOT NULL))`}
       ORDER BY a.starts_at ${upcoming ? sql`ASC` : sql`DESC`} LIMIT ${limitArg(limit)} OFFSET ${offsetArg(offset)}`);
     return r.map((x) => appointmentFromSql(x, now));
   }
@@ -368,7 +376,7 @@ export class BookingResolver {
   async searchPatients(@Args('query', { type: () => String }) query: string, @Context() c: GqlContext): Promise<PatientType[]> {
     const a = actorOf(c);
     const q = query.trim().slice(0, 100);
-    if (q.length < 2) return [];
+    if (q.length < 2 || hasForbiddenText(q)) return []; // NUL / lone surrogates cannot match anything and Postgres refuses them
     const phone = phoneSchema.safeParse(q);
     const r = phone.success
       ? await rows(this.db, sql`SELECT id, full_name, phone, email, online_booking_blocked_until FROM patients WHERE phone = ${phone.data} LIMIT 1`)

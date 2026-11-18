@@ -42,6 +42,7 @@ export const buildServices = (env: ApiEnv, now: () => Date = () => new Date()): 
     domain: { db: createDb(pool), now, rules: rulesFromEnv(env) },
     limiters: {
       global: lim('global', env.RATE_GLOBAL_PER_MIN, 60),
+      cost: lim('cost', env.RATE_COST_PER_MIN, 60),
       signIn: lim('signin', env.RATE_SIGNIN_PER_MIN, 60),
       signInIp: lim('signin-ip', env.RATE_SIGNIN_IP_PER_MIN, 60),
       signUp: lim('signup', env.RATE_SIGNUP_PER_HOUR, 3600),

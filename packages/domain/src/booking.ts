@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { and, eq, sql } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { schema, type Tx } from '@clinic/db';
 import {
   FREE_CANCEL_HOURS,
@@ -18,9 +18,9 @@ import {
   canTouch,
   checkFutureLimit,
   getAppointment,
-  getAppointmentLockingPatient,
+  getAppointmentUnderDayLock,
   loadClinic,
-  lockDoctorDay,
+  lockDoctorDays,
   lockPatient,
   notifyPatient,
   sweepExpiredHolds,
@@ -43,86 +43,190 @@ const resolvePatient = (actor: Actor, requested: string | undefined): Result<str
   return fail('FORBIDDEN', 'Not allowed to book visits');
 };
 
+type HeldRow = { id: string; doctor_id: string; clinic_id: string; starts_at: Date | string; local_date: string };
+
+/** The patient's live regular holds that were made online (the 'held' history row says by whom). */
+const onlineHoldsOf = async (tx: Tx, patientId: string, lock: boolean): Promise<HeldRow[]> =>
+  (
+    await tx.execute(sql`
+      SELECT a.id, a.doctor_id, a.clinic_id, a.starts_at, a.local_date::text AS local_date FROM appointments a
+      WHERE a.patient_id = ${patientId}::uuid AND a.status = 'held' AND a.kind = 'regular'
+        AND EXISTS (SELECT 1 FROM appointment_events ev WHERE ev.appointment_id = a.id AND ev.type = 'held' AND ev.actor_role = 'patient')
+      ORDER BY a.id ${lock ? sql`FOR UPDATE OF a` : sql``}`)
+  ).rows as unknown as HeldRow[];
+
+/** Body of `holdSlot`, reusable inside a larger transaction (phone booking). */
+const holdIn = async (env: TxEnv, actor: Actor, input: HoldRequest): Promise<Result<Appointment, AppError>> => {
+  const { tx, now, ctx } = env;
+  const who = resolvePatient(actor, input.patientId);
+  if (!who.ok) return who;
+  const patientId = who.value;
+  if (actor.role === 'registrar' && actor.clinicId !== input.clinicId) return fail('NOT_FOUND', 'Clinic not found');
+
+  const holdClinic = await loadClinic(tx, input.clinicId);
+  if (!holdClinic) return fail('NOT_FOUND', 'Clinic not found');
+  // Lock order: doctor-day(s) -> patient -> appointment rows. The day of a hold that this booking
+  // will replace is locked up front too (in sorted order), so the replaced time can be handed over.
+  const replaceable = actor.role === 'patient' ? await onlineHoldsOf(tx, patientId, false) : [];
+  await lockDoctorDays(tx, [
+    { doctorId: input.doctorId, localDate: localDateOf(input.startsAt, holdClinic.timeZone) },
+    ...replaceable.map((r) => ({ doctorId: r.doctor_id, localDate: r.local_date })),
+  ]);
+  const patient = await lockPatient(tx, patientId); // serializes this patient's bookings
+  if (!patient) return fail('NOT_FOUND', 'Patient not found');
+  if (actor.role === 'patient' && patient.onlineBookingBlockedUntil && patient.onlineBookingBlockedUntil.getTime() > now.getTime())
+    return err(appError('ONLINE_BOOKING_BLOCKED', 'Online booking is closed because of missed visits; please call the clinic'));
+
+  const v = await validateSlot(env, input);
+  if (!v.ok) return v;
+
+  // One live ONLINE hold per patient: a new online hold replaces the previous online one. A registrar's
+  // phone hold neither replaces nor is replaced (it would silently kill the patient's open form).
+  const prev = actor.role === 'patient' ? await onlineHoldsOf(tx, patientId, true) : [];
+  if (prev.length > 0) {
+    await setHistoryMeta(tx, now, actor, { reason: 'replaced_by_new_hold' });
+    for (const p of prev) {
+      await tx.update(schema.appointments).set({ status: 'cancelled', cancelledAt: now, updatedAt: now }).where(eq(schema.appointments.id, p.id));
+      await cancelTasksOf(tx, p.id, ['hold.expire']);
+    }
+    await setHistoryMeta(tx, now, actor, {});
+  }
+
+  const limit = await checkFutureLimit(env, patientId, null);
+  if (!limit.ok) return limit;
+
+  const endsAt = new Date(input.startsAt.getTime() + v.value.durationMin * 60_000);
+  await sweepExpiredHolds(env, { doctorId: input.doctorId, clinicId: input.clinicId, patientId, needsUltrasound: v.value.needsUltrasound, startsAt: input.startsAt, endsAt });
+
+  const expiresAt = new Date(now.getTime() + ctx.rules.holdTtlSeconds * 1000);
+  const [row] = await tx
+    .insert(schema.appointments)
+    .values({
+      patientId,
+      doctorId: input.doctorId,
+      clinicId: input.clinicId,
+      serviceId: input.serviceId,
+      startsAt: input.startsAt,
+      endsAt,
+      prepMinutes: ctx.rules.prepMinutes,
+      occupiedUntil: endsAt, // recomputed by trigger
+      localDate: v.value.localDate, // recomputed by trigger
+      status: 'held',
+      kind: 'regular',
+      holdExpiresAt: expiresAt,
+      priceMinor: v.value.priceMinor,
+      currency: v.value.currency,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .returning();
+  const appt = row as Appointment;
+  await enqueueTask(tx, {
+    kind: 'hold.expire',
+    runAt: expiresAt,
+    dedupeKey: `hold.expire:${appt.id}`,
+    payload: { appointmentId: appt.id },
+  });
+  // the replaced holds are free time now: hand them to the waiting list (not the time just re-picked)
+  for (const p of prev) {
+    if (p.doctor_id === input.doctorId && new Date(p.starts_at).getTime() === input.startsAt.getTime()) continue;
+    await offerFreedSlot(env, { doctorId: p.doctor_id, clinicId: p.clinic_id, startsAt: new Date(p.starts_at) });
+  }
+  return ok(appt);
+};
+
 /**
  * Step 1 of booking: reserve the time for `holdTtlSeconds` while the patient fills the form.
- * One live hold per patient (a new hold replaces the previous: nobody can freeze the grid).
+ * One live online hold per patient (a new hold replaces the previous: nobody can freeze the grid).
  * Races are decided by the database exclusion constraints, not by checks in code.
  */
 export const holdSlot = (ctx: Ctx, actor: Actor, input: HoldRequest): Promise<Result<Appointment, AppError>> =>
-  transact(ctx, actor, async (env) => {
-    const { tx, now } = env;
-    const who = resolvePatient(actor, input.patientId);
-    if (!who.ok) return who;
-    const patientId = who.value;
-    if (actor.role === 'registrar' && actor.clinicId !== input.clinicId)
-      return fail('NOT_FOUND', 'Clinic not found');
-
-    const holdClinic = await loadClinic(tx, input.clinicId);
-    if (!holdClinic) return fail('NOT_FOUND', 'Clinic not found');
-    await lockDoctorDay(tx, input.doctorId, localDateOf(input.startsAt, holdClinic.timeZone));
-    const patient = await lockPatient(tx, patientId); // serializes this patient's bookings
-    if (!patient) return fail('NOT_FOUND', 'Patient not found');
-    if (actor.role === 'patient' && patient.onlineBookingBlockedUntil && patient.onlineBookingBlockedUntil.getTime() > now.getTime())
-      return err(appError('ONLINE_BOOKING_BLOCKED', 'Online booking is closed because of missed visits; please call the clinic'));
-
-    const v = await validateSlot(env, input);
-    if (!v.ok) return v;
-
-    // replace the patient's previous live hold
-    const prev = await tx
-      .select({ id: schema.appointments.id })
-      .from(schema.appointments)
-      .where(and(eq(schema.appointments.patientId, patientId), eq(schema.appointments.status, 'held'), eq(schema.appointments.kind, 'regular')))
-      .for('update');
-    if (prev.length > 0) {
-      await setHistoryMeta(tx, now, actor, { reason: 'replaced_by_new_hold' });
-      for (const p of prev) {
-        await tx.update(schema.appointments).set({ status: 'cancelled', cancelledAt: now, updatedAt: now }).where(eq(schema.appointments.id, p.id));
-        await cancelTasksOf(tx, p.id, ['hold.expire']);
-      }
-      await setHistoryMeta(tx, now, actor, {});
-    }
-
-    const limit = await checkFutureLimit(env, patientId, null);
-    if (!limit.ok) return limit;
-
-    const endsAt = new Date(input.startsAt.getTime() + v.value.durationMin * 60_000);
-    await sweepExpiredHolds(env, { doctorId: input.doctorId, clinicId: input.clinicId, patientId, needsUltrasound: v.value.needsUltrasound, startsAt: input.startsAt, endsAt });
-
-    const expiresAt = new Date(now.getTime() + ctx.rules.holdTtlSeconds * 1000);
-    const [row] = await tx
-      .insert(schema.appointments)
-      .values({
-        patientId,
-        doctorId: input.doctorId,
-        clinicId: input.clinicId,
-        serviceId: input.serviceId,
-        startsAt: input.startsAt,
-        endsAt,
-        prepMinutes: ctx.rules.prepMinutes,
-        occupiedUntil: endsAt, // recomputed by trigger
-        localDate: v.value.localDate, // recomputed by trigger
-        status: 'held',
-        kind: 'regular',
-        holdExpiresAt: expiresAt,
-        priceMinor: v.value.priceMinor,
-        currency: v.value.currency,
-        createdAt: now,
-        updatedAt: now,
-      })
-      .returning();
-    const appt = row as Appointment;
-    await enqueueTask(tx, {
-      kind: 'hold.expire',
-      runAt: expiresAt,
-      dedupeKey: `hold.expire:${appt.id}`,
-      payload: { appointmentId: appt.id },
-    });
-    return ok(appt);
-  });
+  transact(ctx, actor, (env) => holdIn(env, actor, input));
 
 const requestHash = (i: ConfirmBookingInput): string =>
   createHash('sha256').update(JSON.stringify({ a: i.appointmentId })).digest('hex');
+
+const actorKeyOf = (actor: Actor): string => actor.userId ?? (actor.patientId ? `patient:${actor.patientId}` : 'system');
+
+/**
+ * Claims (actor, key) for a request with this hash. A replay of the same request returns the visit it
+ * produced; the same key for a different request is rejected. Concurrent claims queue on the unique
+ * index, so the loser sees the winner's committed row.
+ */
+const claimKey = async (
+  { tx }: TxEnv,
+  actor: Actor,
+  key: string,
+  hash: string,
+): Promise<Result<{ actorKey: string; replay: Appointment | null }, AppError>> => {
+  const actorKey = actorKeyOf(actor);
+  const claimed = await tx.execute(sql`
+    INSERT INTO idempotency_keys (actor_key, key, request_hash) VALUES (${actorKey}, ${key}, ${hash})
+    ON CONFLICT (actor_key, key) DO NOTHING RETURNING key`);
+  if (claimed.rows.length > 0) return ok({ actorKey, replay: null });
+  const prior = (await tx.execute(sql`SELECT request_hash, appointment_id FROM idempotency_keys WHERE actor_key = ${actorKey} AND key = ${key}`)).rows[0] as { request_hash: string; appointment_id: string | null } | undefined;
+  if (!prior || prior.request_hash !== hash) return fail('IDEMPOTENCY_KEY_REUSED', 'This idempotency key was used for a different request');
+  if (prior.appointment_id) {
+    const a = await getAppointment(tx, prior.appointment_id, false);
+    if (a && canTouch(actor, a)) return ok({ actorKey, replay: a });
+  }
+  return fail('NOT_FOUND', 'Booking not found');
+};
+
+/** Step 2 of `confirmBooking`, after the idempotency key is claimed. */
+const confirmIn = async (env: TxEnv, actor: Actor, input: ConfirmBookingInput, actorKey: string): Promise<Result<Appointment, AppError>> => {
+  const { tx, now } = env;
+  const appt = await getAppointmentUnderDayLock(tx, input.appointmentId);
+  if (!appt || !canTouch(actor, appt) || actor.role === 'doctor') return fail('NOT_FOUND', 'Booking not found');
+  const isOffer = appt.kind === 'waitlist_offer';
+  const timeIsUp = !!appt.holdExpiresAt && appt.holdExpiresAt.getTime() <= now.getTime();
+  // a hold that ran out may already have been released (by a newer booking or the worker):
+  // it is still "expired", not "invalid"
+  if ((appt.status === 'held' || appt.status === 'cancelled') && timeIsUp)
+    return fail(isOffer ? 'OFFER_EXPIRED' : 'HOLD_EXPIRED', isOffer ? 'The offer has expired' : 'The reservation has expired; please pick the time again');
+  if (appt.status !== 'held') return fail('INVALID_TRANSITION', 'This booking is not waiting for confirmation');
+  if (!appt.holdExpiresAt) return fail('HOLD_EXPIRED', 'The reservation has expired; please pick the time again');
+
+  const patient = await lockPatient(tx, appt.patientId);
+  if (!patient) return fail('NOT_FOUND', 'Patient not found');
+  if (actor.role === 'patient' && !isOffer && patient.onlineBookingBlockedUntil && patient.onlineBookingBlockedUntil.getTime() > now.getTime())
+    return fail('ONLINE_BOOKING_BLOCKED', 'Online booking is closed because of missed visits; please call the clinic');
+  const limit = await checkFutureLimit(env, appt.patientId, appt.id);
+  if (!limit.ok) return limit;
+
+  // the doctor may have been marked sick / on vacation while the hold was open
+  const blocked = await tx.execute(sql`
+    SELECT 1 FROM schedule_exceptions WHERE doctor_id = ${appt.doctorId}::uuid AND local_date = ${appt.localDate}::date
+      AND kind IN ('vacation', 'sick', 'day_off')`);
+  if (blocked.rows.length > 0) return fail('OUTSIDE_WORKING_HOURS', 'The doctor is not working on this day');
+
+  const [row] = await tx
+    .update(schema.appointments)
+    .set({ status: 'booked', bookedAt: now, holdExpiresAt: null, updatedAt: now })
+    .where(eq(schema.appointments.id, appt.id))
+    .returning();
+  const booked = row as Appointment;
+
+  const clinic = await loadClinic(tx, booked.clinicId);
+  await cancelTasksOf(tx, booked.id, ['hold.expire', 'offer.expire']);
+  await scheduleReminders(tx, { id: booked.id, version: booked.version, startsAt: booked.startsAt, timeZone: clinic?.timeZone ?? 'UTC' }, now);
+  await enqueueTask(tx, {
+    kind: 'email.booking_confirmed',
+    runAt: now,
+    dedupeKey: `email.booking_confirmed:${booked.id}:v${booked.version}`,
+    payload: { appointmentId: booked.id },
+  });
+  await notifyPatient(tx, booked.patientId, 'booking_confirmed', { appointmentId: booked.id });
+
+  if (isOffer) {
+    await tx.execute(sql`
+      WITH o AS (UPDATE waitlist_offers SET status = 'accepted', responded_at = ${now.toISOString()}::timestamptz
+                 WHERE appointment_id = ${booked.id}::uuid AND status = 'pending' RETURNING entry_id)
+      UPDATE waitlist_entries SET status = 'fulfilled' WHERE id IN (SELECT entry_id FROM o)`);
+  }
+  await tx.execute(sql`UPDATE idempotency_keys SET appointment_id = ${booked.id}::uuid WHERE actor_key = ${actorKey} AND key = ${input.idempotencyKey}`);
+  return ok(booked);
+};
 
 /**
  * Step 2: turn the hold into a booking. Idempotent per (actor, key): a replay returns the same
@@ -131,75 +235,30 @@ const requestHash = (i: ConfirmBookingInput): string =>
  */
 export const confirmBooking = (ctx: Ctx, actor: Actor, input: ConfirmBookingInput): Promise<Result<Appointment, AppError>> =>
   transact(ctx, actor, async (env) => {
-    const { tx, now } = env;
-    const actorKey = actor.userId ?? (actor.patientId ? `patient:${actor.patientId}` : 'system');
-    const hash = requestHash(input);
-    const claimed = await tx.execute(sql`
-      INSERT INTO idempotency_keys (actor_key, key, request_hash) VALUES (${actorKey}, ${input.idempotencyKey}, ${hash})
-      ON CONFLICT (actor_key, key) DO NOTHING RETURNING key`);
-    if (claimed.rows.length === 0) {
-      const prior = (await tx.execute(sql`SELECT request_hash, appointment_id FROM idempotency_keys WHERE actor_key = ${actorKey} AND key = ${input.idempotencyKey}`)).rows[0] as { request_hash: string; appointment_id: string | null } | undefined;
-      if (!prior || prior.request_hash !== hash) return fail('IDEMPOTENCY_KEY_REUSED', 'This idempotency key was used for a different request');
-      if (prior.appointment_id) {
-        const a = await getAppointment(tx, prior.appointment_id, false);
-        if (a && canTouch(actor, a)) return ok(a);
-      }
-      return fail('NOT_FOUND', 'Booking not found');
-    }
+    const claim = await claimKey(env, actor, input.idempotencyKey, requestHash(input));
+    if (!claim.ok) return claim;
+    if (claim.value.replay) return ok(claim.value.replay);
+    return confirmIn(env, actor, input, claim.value.actorKey);
+  });
 
-    const peek = await getAppointment(tx, input.appointmentId, false);
-    if (peek) await lockDoctorDay(tx, peek.doctorId, peek.localDate);
-    const appt = await getAppointmentLockingPatient(tx, input.appointmentId);
-    if (!appt || !canTouch(actor, appt) || actor.role === 'doctor') return fail('NOT_FOUND', 'Booking not found');
-    const isOffer = appt.kind === 'waitlist_offer';
-    const timeIsUp = !!appt.holdExpiresAt && appt.holdExpiresAt.getTime() <= now.getTime();
-    // a hold that ran out may already have been released (by a newer booking or the worker):
-    // it is still "expired", not "invalid"
-    if ((appt.status === 'held' || appt.status === 'cancelled') && timeIsUp)
-      return fail(isOffer ? 'OFFER_EXPIRED' : 'HOLD_EXPIRED', isOffer ? 'The offer has expired' : 'The reservation has expired; please pick the time again');
-    if (appt.status !== 'held') return fail('INVALID_TRANSITION', 'This booking is not waiting for confirmation');
-    if (!appt.holdExpiresAt) return fail('HOLD_EXPIRED', 'The reservation has expired; please pick the time again');
+export type RegistrarBookInput = HoldRequest & { patientId: string; idempotencyKey: string };
 
-    const patient = await lockPatient(tx, appt.patientId);
-    if (!patient) return fail('NOT_FOUND', 'Patient not found');
-    if (actor.role === 'patient' && !isOffer && patient.onlineBookingBlockedUntil && patient.onlineBookingBlockedUntil.getTime() > now.getTime())
-      return fail('ONLINE_BOOKING_BLOCKED', 'Online booking is closed because of missed visits; please call the clinic');
-    const limit = await checkFutureLimit(env, appt.patientId, appt.id);
-    if (!limit.ok) return limit;
-
-    // the doctor may have been marked sick / on vacation while the hold was open
-    const blocked = await tx.execute(sql`
-      SELECT 1 FROM schedule_exceptions WHERE doctor_id = ${appt.doctorId}::uuid AND local_date = ${appt.localDate}::date
-        AND kind IN ('vacation', 'sick', 'day_off')`);
-    if (blocked.rows.length > 0) return fail('OUTSIDE_WORKING_HOURS', 'The doctor is not working on this day');
-
-    const [row] = await tx
-      .update(schema.appointments)
-      .set({ status: 'booked', bookedAt: now, holdExpiresAt: null, updatedAt: now })
-      .where(eq(schema.appointments.id, appt.id))
-      .returning();
-    const booked = row as Appointment;
-
-    const clinic = await loadClinic(tx, booked.clinicId);
-    await cancelTasksOf(tx, booked.id, ['hold.expire']);
-    await tx.execute(sql`UPDATE scheduled_tasks SET status = 'cancelled' WHERE status = 'pending' AND payload->>'appointmentId' = ${booked.id} AND kind = 'offer.expire'`);
-    await scheduleReminders(tx, { id: booked.id, version: booked.version, startsAt: booked.startsAt, timeZone: clinic?.timeZone ?? 'UTC' }, now);
-    await enqueueTask(tx, {
-      kind: 'email.booking_confirmed',
-      runAt: now,
-      dedupeKey: `email.booking_confirmed:${booked.id}:v${booked.version}`,
-      payload: { appointmentId: booked.id },
-    });
-    await notifyPatient(tx, booked.patientId, 'booking_confirmed', { appointmentId: booked.id });
-
-    if (isOffer) {
-      await tx.execute(sql`
-        WITH o AS (UPDATE waitlist_offers SET status = 'accepted', responded_at = ${now.toISOString()}::timestamptz
-                   WHERE appointment_id = ${booked.id}::uuid AND status = 'pending' RETURNING entry_id)
-        UPDATE waitlist_entries SET status = 'fulfilled' WHERE id IN (SELECT entry_id FROM o)`);
-    }
-    await tx.execute(sql`UPDATE idempotency_keys SET appointment_id = ${booked.id}::uuid WHERE actor_key = ${actorKey} AND key = ${input.idempotencyKey}`);
-    return ok(booked);
+/**
+ * Phone booking: hold + confirm in ONE transaction, idempotent per (registrar, key). The key is
+ * claimed first, so a retry returns the same visit instead of tripping the daily limit, a retry with
+ * another slot / patient is rejected, and concurrent identical retries book exactly once.
+ */
+export const registrarBookingFlow = (ctx: Ctx, actor: Actor, input: RegistrarBookInput): Promise<Result<Appointment, AppError>> =>
+  transact(ctx, actor, async (env) => {
+    const hash = createHash('sha256')
+      .update(JSON.stringify({ r: [input.clinicId, input.doctorId, input.serviceId, input.startsAt.toISOString(), input.patientId] }))
+      .digest('hex');
+    const claim = await claimKey(env, actor, input.idempotencyKey, hash);
+    if (!claim.ok) return claim;
+    if (claim.value.replay) return ok(claim.value.replay);
+    const held = await holdIn(env, actor, input);
+    if (!held.ok) return held;
+    return confirmIn(env, actor, { appointmentId: held.value.id, idempotencyKey: input.idempotencyKey }, claim.value.actorKey);
   });
 
 /** Accepting a waitlist offer is confirming its held visit. */
@@ -230,11 +289,9 @@ export const rescheduleAppointment = (ctx: Ctx, actor: Actor, input: RescheduleI
     const { tx, now } = env;
     if (actor.role !== 'patient' && actor.role !== 'registrar') return fail('FORBIDDEN', 'Not allowed to move visits');
     const peek = await getAppointment(tx, input.appointmentId, false);
-    if (peek) {
-      const tz = (await loadClinic(tx, peek.clinicId))?.timeZone;
-      if (tz) await lockDoctorDay(tx, peek.doctorId, localDateOf(input.newStartsAt, tz));
-    }
-    const appt = await getAppointmentLockingPatient(tx, input.appointmentId);
+    const tz = peek ? (await loadClinic(tx, peek.clinicId))?.timeZone : undefined;
+    // old day and new day (sorted), then patient, then the row
+    const appt = await getAppointmentUnderDayLock(tx, input.appointmentId, tz ? [localDateOf(input.newStartsAt, tz)] : []);
     if (!appt || !canTouch(actor, appt)) return fail('NOT_FOUND', 'Visit not found');
     if (input.expectedVersion !== undefined && input.expectedVersion !== appt.version)
       return fail('VERSION_CONFLICT', 'The visit was changed meanwhile; reload and try again');
@@ -273,7 +330,7 @@ export const cancelAppointment = (
   transact(ctx, actor, async (env) => {
     const { tx, now } = env;
     if (actor.role === 'doctor' || actor.role === 'manager') return fail('FORBIDDEN', 'Not allowed to cancel visits');
-    const appt = await getAppointmentLockingPatient(tx, input.appointmentId);
+    const appt = await getAppointmentUnderDayLock(tx, input.appointmentId); // day lock first: see lock order
     if (!appt || !canTouch(actor, appt)) return fail('NOT_FOUND', 'Visit not found');
     if (appt.status === 'cancelled') return ok(appt); // cancelling twice is harmless
     if (appt.status !== 'held' && appt.status !== 'booked') return fail('INVALID_TRANSITION', 'This visit can no longer be cancelled');
@@ -302,7 +359,7 @@ export const cancelAppointment = (
 export const expireHold = (ctx: Ctx, appointmentId: string): Promise<Result<{ released: boolean }, AppError>> =>
   transact<{ released: boolean }>(ctx, { userId: null, role: 'system' }, async (env) => {
     const { tx, now } = env;
-    const a = await getAppointment(tx, appointmentId);
+    const a = await getAppointmentUnderDayLock(tx, appointmentId);
     if (!a || a.status !== 'held' || a.kind !== 'regular') return ok({ released: false });
     if (!a.holdExpiresAt || a.holdExpiresAt.getTime() > now.getTime()) return ok({ released: false });
     await setHistoryMeta(tx, now, env.actor, { reason: 'hold_expired' });

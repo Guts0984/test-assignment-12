@@ -27,13 +27,20 @@ export const enqueueTask = async (
     ON CONFLICT (dedupe_key) DO NOTHING`);
 };
 
-/** Pending tasks of an appointment that must not run any more. */
+/**
+ * Pending tasks of an appointment that must not run any more. SKIP LOCKED: a task the worker is
+ * executing right now (it holds the row while it calls back into the domain) is not waited for;
+ * waiting would be a deadlock the database cannot see. That task finds its target already closed.
+ */
 export const cancelTasksOf = async (tx: Tx, appointmentId: string, kinds: readonly TaskKind[]): Promise<void> => {
   if (kinds.length === 0) return;
   await tx.execute(sql`
     UPDATE scheduled_tasks SET status = 'cancelled'
-    WHERE status = 'pending' AND payload->>'appointmentId' = ${appointmentId}
-      AND kind IN (${sql.join(kinds.map((k) => sql`${k}`), sql`, `)})`);
+    WHERE id IN (
+      SELECT id FROM scheduled_tasks
+      WHERE status = 'pending' AND payload->>'appointmentId' = ${appointmentId}
+        AND kind IN (${sql.join(kinds.map((k) => sql`${k}`), sql`, `)})
+      FOR UPDATE SKIP LOCKED)`);
 };
 
 export const REMINDER_KINDS: readonly TaskKind[] = ['reminder.24h', 'reminder.2h'];

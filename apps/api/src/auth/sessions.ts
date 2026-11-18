@@ -17,7 +17,7 @@ export type SessionUser = {
   locale: string | null;
 };
 
-const hashToken = (t: string): string => createHash('sha256').update(t).digest('hex');
+export const hashToken = (t: string): string => createHash('sha256').update(t).digest('hex');
 
 export const toActor = (u: SessionUser | null): Actor | null =>
   u ? { userId: u.userId, role: u.role, patientId: u.patientId, clinicId: u.clinicId, doctorId: u.doctorId } : null;

@@ -13,10 +13,11 @@ import type { Response } from 'express';
 import { sql } from 'drizzle-orm';
 import { DB, ENV, LIMITERS, REDIS, SCHEMA_REF, BUS, DOMAIN, POOL, TRUSTED, type GqlContext, type Services } from './infra/tokens.js';
 import { RolesGuard } from './auth/roles.js';
-import { SESSION_COOKIE, findSessionUser, parseCookies, toActor, type SessionUser } from './auth/sessions.js';
+import { SESSION_COOKIE, findSessionUser, hashToken, parseCookies, toActor, type SessionUser } from './auth/sessions.js';
 import { clientIp } from './infra/ip.js';
 import { formatError, gqlError } from './infra/errors.js';
 import { checkLimits, limitsPlugin } from './infra/security.js';
+import { TOPIC } from './infra/event-bus.js';
 import { createLoaders } from './loaders.js';
 import { loadVisible } from './graphql/resolvers.js';
 import {
@@ -86,7 +87,7 @@ export class HealthController {
   }
 }
 
-type WsExtra = { request: IncomingMessage; session?: { ip: string; user: SessionUser | null; token: string | null } };
+type WsExtra = { socket?: { close: (code?: number, reason?: string) => void }; request: IncomingMessage; session?: { ip: string; user: SessionUser | null; token: string | null } };
 
 @Module({})
 export class ApiModule {
@@ -94,6 +95,25 @@ export class ApiModule {
     const env: ApiEnv = s.env;
     const limits = { maxDepth: env.GQL_MAX_DEPTH, maxComplexity: env.GQL_MAX_COMPLEXITY, maxFields: env.GQL_MAX_FIELDS };
     const wsPerIp = new Map<string, number>();
+    // open sockets by session (token hash): a sign-out must not leave a live stream behind
+    const socketsBySession = new Map<string, { token: string; sockets: Set<NonNullable<WsExtra['socket']>> }>();
+    const closeSession = (hash: string): void => {
+      const entry = socketsBySession.get(hash);
+      if (!entry) return;
+      socketsBySession.delete(hash);
+      for (const sock of entry.sockets) sock.close(4401, 'Session ended');
+    };
+    // sign-out on any replica arrives through the bus (Redis) on all of them
+    void s.bus.pubsub.subscribe(TOPIC, (e: unknown) => {
+      if (e && typeof e === 'object' && (e as { type?: string }).type === 'session_revoked') closeSession(String((e as { tokenHash?: unknown }).tokenHash));
+    });
+    // expiry (and revocations whose bus message was lost) are caught by a periodic re-check
+    const sweep = setInterval(() => {
+      for (const [hash, entry] of [...socketsBySession]) {
+        void findSessionUser(s.db, entry.token, s.domain.now()).then((u) => { if (!u) closeSession(hash); }).catch(() => undefined);
+      }
+    }, 15_000);
+    sweep.unref();
     const baseContext = (ip: string, user: SessionUser | null, token: string | null, transport: 'http' | 'ws'): Omit<GqlContext, 'req' | 'res'> => {
       const actor = toActor(user);
       return { ip, user, token, actor, transport, loaders: createLoaders(s.db, actor), visible: (id) => loadVisible(s.db, id, actor) };
@@ -115,7 +135,7 @@ export class ApiModule {
           includeStacktraceInErrorResponses: false,
           plugins: [
             env.NODE_ENV === 'production' ? ApolloServerPluginLandingPageDisabled() : ApolloServerPluginLandingPageLocalDefault({ embed: false, includeCookies: true }),
-            limitsPlugin(() => schemaRef.current, limits),
+            limitsPlugin(() => schemaRef.current, limits, s.limiters.cost),
           ],
           formatError: (formatted, original) => formatError(formatted, original, log),
           context: async ({ req, res, extra }: { req?: IncomingMessage & { headers: Record<string, string | string[] | undefined> }; res?: Response; extra?: WsExtra }): Promise<GqlContext> => {
@@ -144,10 +164,23 @@ export class ApiModule {
                 const token = parseCookies(req.headers['cookie']) [SESSION_COOKIE] ?? null;
                 const user = await findSessionUser(s.db, token ?? undefined, s.domain.now());
                 ctx.extra.session = { ip, user, token };
+                if (user && token && ctx.extra.socket) {
+                  const h = hashToken(token);
+                  const entry = socketsBySession.get(h) ?? { token, sockets: new Set() };
+                  entry.sockets.add(ctx.extra.socket);
+                  socketsBySession.set(h, entry);
+                }
                 return true;
               },
               onDisconnect: (c: { extra: unknown }) => {
-                const ip = (c.extra as WsExtra).session?.ip;
+                const x = c.extra as WsExtra;
+                if (x.session?.token && x.socket) {
+                  const h = hashToken(x.session.token);
+                  const entry = socketsBySession.get(h);
+                  entry?.sockets.delete(x.socket);
+                  if (entry && entry.sockets.size === 0) socketsBySession.delete(h);
+                }
+                const ip = x.session?.ip;
                 if (!ip) return;
                 const n = (wsPerIp.get(ip) ?? 1) - 1;
                 if (n <= 0) wsPerIp.delete(ip);
