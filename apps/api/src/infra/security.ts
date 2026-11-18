@@ -139,7 +139,7 @@ export const checkLimits = (schema: GraphQLSchema, doc: DocumentNode, variables:
 /** Charges `cost` points to the caller's per-minute budget (the per-IP cost limiter). */
 export type CostBudget = { consume: (key: string, points: number) => Promise<{ ok: true } | { ok: false; retryAfterSec: number }> };
 
-export const limitsPlugin = (getSchema: () => GraphQLSchema | null, limits: Limits, budget?: CostBudget): ApolloServerPlugin<{ ip?: string }> => ({
+export const limitsPlugin = (getSchema: () => GraphQLSchema | null, limits: Limits, budget?: CostBudget): ApolloServerPlugin<{ ip?: string; user?: { userId: string } | null }> => ({
   requestDidStart: async () => ({
     didResolveOperation: async ({ document, request, contextValue }) => {
       const schema = getSchema();
@@ -149,7 +149,9 @@ export const limitsPlugin = (getSchema: () => GraphQLSchema | null, limits: Limi
       if (budget) {
         // the work an address may ask for per minute is bounded, not just the number of requests
         const cost = estimateCost(schema, document, request.variables ?? {}, request.operationName);
-        const r = await budget.consume(contextValue.ip ?? 'unknown', cost);
+        // signed-in users are charged per ACCOUNT (a whole office shares one IP); visitors per address
+        const key = contextValue.user ? `u:${contextValue.user.userId}` : `ip:${contextValue.ip ?? 'unknown'}`;
+        const r = await budget.consume(key, cost);
         if (!r.ok) throw gqlError('RATE_LIMITED', 'Too much work requested, slow down', { retryAfterSec: r.retryAfterSec });
       }
     },

@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { useMemo } from 'react';
 import { useMutation, useQuery } from 'urql';
 import { useTranslations } from 'next-intl';
 import { phoneSchema } from '@clinic/shared';
@@ -25,7 +26,8 @@ export const PhoneBookingForm = ({ slot, onBooked }: { slot: PhoneSlot; onBooked
   const [phone, setPhone] = useState('');
   const [fieldErr, setFieldErr] = useState<{ name?: boolean; phone?: boolean }>({});
   const [code, setCode] = useState<string | null>(null);
-  const [key] = useState(newKey);
+  // one idempotency key per booking intent (this slot + this patient): a retry reuses it, another time gets a new one
+  const key = useMemo(() => newKey(), [slot.doctorId, slot.startsAt, slot.serviceId, chosen?.id]);
   const [done, setDone] = useState(false);
   const [{ data }] = useQuery({ query: SearchDocument, variables: { query: q }, pause: q.trim().length < 2 });
   const [, book] = useMutation(BookDocument);

@@ -246,7 +246,7 @@ export class RevenueRowType {
   @Field(() => ID) serviceId!: string;
   @Field(() => String) serviceCode!: string;
   @Field(() => CurrencyEnum) currency!: CurrencyEnum;
-  @Field(() => Int) revenueMinor!: number;
+  @Field(() => Float) revenueMinor!: number;
   @Field(() => Int) visits!: number;
 }
 

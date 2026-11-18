@@ -481,7 +481,7 @@ export type RespondOfferInput = {
 export type RevenueRow = {
   __typename?: 'RevenueRow';
   currency: Currency;
-  revenueMinor: Scalars['Int']['output'];
+  revenueMinor: Scalars['Float']['output'];
   serviceCode: Scalars['String']['output'];
   serviceId: Scalars['ID']['output'];
   visits: Scalars['Int']['output'];
