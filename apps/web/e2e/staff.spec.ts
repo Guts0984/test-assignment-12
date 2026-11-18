@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { catalog, gql, loginAs, newPatient, openSearch, firstSlot, slotByStart, type Catalog } from './helpers';
+import { arrowSelect, catalog, gql, loginAs, newPatient, openSearch, firstSlot, slotByStart, tabTo, type Catalog } from './helpers';
 
 let c: Catalog;
 test.beforeAll(async ({ request }) => { c = await catalog(request); });
@@ -116,24 +116,29 @@ test('registrar: the phone-booking path works with the keyboard only', async ({ 
   const page = await ctx.newPage();
   const kb = page.keyboard;
   await page.goto('/en/registrar/phone');
-  await expect(page.getByLabel('Service').locator('option')).not.toHaveCount(1);
-  await page.getByLabel('Service').focus();
-  for (let i = 0; i < 20 && (await page.getByLabel('Service').inputValue()) !== c.service; i++) { await kb.press('ArrowDown'); await page.waitForTimeout(350); }
-  expect(await page.getByLabel('Service').inputValue()).toBe(c.service);
+  const service = page.getByLabel('Service');
+  await expect(service.locator('option')).not.toHaveCount(1);
+  await tabTo(page, service, 30);
+  await arrowSelect(page, service, c.service);
   await expect(page.getByTestId('slot-grid')).toBeVisible();
   const slot = page.getByTestId('slot').first();
+  await expect(slot).toBeVisible();
   const start = await slot.getAttribute('data-start');
   const doctor = await slot.getAttribute('data-doctor');
-  await slot.focus();
+  await tabTo(page, slot, 3);
   await kb.press('Enter');
   const form = page.getByTestId('phone-booking');
   await expect(form).toBeVisible();
-  await form.getByLabel('Full name').focus();
+  await expect(form.getByRole('heading')).toBeFocused(); // focus moved to the form
+  // the form's fields and button are a handful of Tab stops away
+  let stops = 0;
+  stops += await tabTo(page, form.getByLabel('Find a patient'), 4);
+  stops += await tabTo(page, form.getByLabel('Full name'), 2);
   await kb.type('Keyboard Patient');
-  await kb.press('Tab');
+  stops += await tabTo(page, form.getByLabel('Phone', { exact: true }), 2);
   await kb.type(`+3805${String(Date.now()).slice(-8)}`);
-  await kb.press('Tab');
-  await expect(page.getByTestId('phone-book')).toBeFocused();
+  stops += await tabTo(page, page.getByTestId('phone-book'), 2);
+  expect(stops).toBeLessThanOrEqual(10);
   await kb.press('Enter');
   await expect(page.getByTestId('phone-booked')).toBeVisible();
   await page.reload();

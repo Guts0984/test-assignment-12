@@ -38,9 +38,16 @@ export const RegistrarPhonePage = () => {
           {doctors.map((d) => <option key={d.id} value={d.id}>{d.fullName}</option>)}
         </SelectField>
       </form>
+      {/* the form comes before the grid in DOM order (a few Tab stops from the chosen time); CSS keeps it on the right */}
       <div className="grid gap-6 lg:grid-cols-[1fr_24rem]">
-        <SlotGrid clinicId={clinicId} clinicLabel={clinic?.city ?? ''} serviceId={q.service} doctorId={q.doctor} selected={picked?.slot} onPick={setPicked} />
-        {picked && <PhoneBookingForm slot={{ clinicId, doctorId: picked.slot.doctorId, serviceId: q.service, startsAt: picked.slot.startsAt }} onBooked={() => undefined} />}
+        {picked && (
+          <div className="lg:col-start-2 lg:row-start-1">
+            <PhoneBookingForm slot={{ clinicId, doctorId: picked.slot.doctorId, serviceId: q.service, startsAt: picked.slot.startsAt }} onBooked={() => undefined} />
+          </div>
+        )}
+        <div className="lg:col-start-1 lg:row-start-1">
+          <SlotGrid clinicId={clinicId} clinicLabel={clinic?.city ?? ''} serviceId={q.service} doctorId={q.doctor} selected={picked?.slot} onPick={setPicked} />
+        </div>
       </div>
     </>
   );

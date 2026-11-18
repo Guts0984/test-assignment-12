@@ -9,6 +9,7 @@ import { localDateOf } from '@clinic/shared';
 import { serviceName, useClinics, useClinicDoctors, useClinicServices } from '@/entities/catalog';
 import { useMe } from '@/entities/session';
 import { SlotGrid, type PickedSlot } from '@/widgets/slot-grid';
+import { focusSlot } from '@/entities/slot';
 import { HoldPanel } from '@/features/hold-slot';
 import { JoinWaitlist } from '@/features/waitlist';
 
@@ -49,20 +50,27 @@ export const SearchPage = () => {
         </SelectField>
       </form>
       {svc && <p className="mb-4 text-sm text-slate-700">{t('duration', { minutes: svc.service.durationMin })} · {t('price', { price: f.money(svc.priceMinor, svc.currency) })}</p>}
-      <div className="grid gap-6 lg:grid-cols-[1fr_22rem]">
-        <SlotGrid clinicId={q.city} clinicLabel={clinic?.city ?? ''} serviceId={q.service} doctorId={q.doctor} selected={picked?.slot} onPick={setPicked} />
-        <div className="flex flex-col gap-4">
-          {picked && svc && clinic && (
+      {/* DOM order = reading order: the reservation comes BEFORE the grid, so Confirm is a few Tab stops away; on wide screens CSS puts it back on the right */}
+      <div className="grid gap-6 lg:grid-cols-[1fr_22rem] lg:grid-rows-[auto_1fr]">
+        {picked && svc && clinic && (
+          <div className="lg:col-start-2 lg:row-start-1">
             <HoldPanel
               signedIn={!!me && me.role === 'patient'}
               staff={!!me && me.role !== 'patient'}
               target={{ clinicId: q.city, doctorId: picked.slot.doctorId, serviceId: q.service, startsAt: picked.slot.startsAt, doctorName: picked.doctorName, serviceName: serviceName(svc.service, locale), timeZone: picked.timeZone, priceLabel: f.money(picked.priceMinor, picked.currency) }}
-              onClose={() => setPicked(null)}
+              onClose={() => { focusSlot(picked.slot); setPicked(null); }}
               onChanged={() => undefined}
             />
-          )}
-          {q.service && <JoinWaitlist doctorId={q.doctor || (doctors[0]?.id ?? '')} serviceId={q.service} defaultFrom={clinic ? localDateOf(new Date(), clinic.timeZone) : ''} signedIn={!!me && me.role === 'patient'} />}
+          </div>
+        )}
+        <div className="lg:col-start-1 lg:row-span-2 lg:row-start-1">
+          <SlotGrid clinicId={q.city} clinicLabel={clinic?.city ?? ''} serviceId={q.service} doctorId={q.doctor} selected={picked?.slot} onPick={setPicked} />
         </div>
+        {q.service && (
+          <div className="lg:col-start-2 lg:row-start-2">
+            <JoinWaitlist doctorId={q.doctor} doctors={doctors} serviceId={q.service} defaultFrom={clinic ? localDateOf(new Date(), clinic.timeZone) : ''} signedIn={!!me && me.role === 'patient'} />
+          </div>
+        )}
       </div>
     </>
   );

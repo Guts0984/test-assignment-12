@@ -1,14 +1,19 @@
 'use client';
 
+import { useLocale, useTranslations } from 'next-intl';
+import { formatLocalDate } from '@/shared/lib';
 import type { SlotData } from '../model/use-availability';
 
-/** One bookable time: a real button (focusable, Enter/Space), labelled with the clinic's wall time and doctor. */
-export const SlotButton = ({ slot, doctorName, showDoctor, selected, onPick }: { slot: SlotData; doctorName: string; showDoctor: boolean; selected?: boolean; onPick: (s: SlotData) => void }) => (
+/** One bookable time: a real button (focusable, Enter/Space), labelled with the date, the clinic's wall time and the doctor (a screen reader hears 'Thu 26 Nov, 09:15, Dr X'). */
+export const SlotButton = ({ slot, doctorName, showDoctor, selected, onPick }: { slot: SlotData; doctorName: string; showDoctor: boolean; selected?: boolean; onPick: (s: SlotData) => void }) => {
+  const t = useTranslations('search');
+  const locale = useLocale();
+  return (
   <button
     type="button"
     onClick={() => onPick(slot)}
     aria-pressed={selected}
-    aria-label={`${slot.localTime}, ${doctorName}`}
+    aria-label={t('slotLabel', { date: formatLocalDate(slot.localDate, locale), time: slot.localTime, doctor: doctorName })}
     data-testid="slot"
     data-start={slot.startsAt}
     data-doctor={slot.doctorId}
@@ -17,4 +22,5 @@ export const SlotButton = ({ slot, doctorName, showDoctor, selected, onPick }: {
     {slot.localTime}
     {showDoctor && <span className="ml-1 text-xs opacity-70">{doctorName.split(' ').slice(-1)[0]}</span>}
   </button>
-);
+  );
+};

@@ -31,6 +31,8 @@ type Documents = {
     "mutation HoldSlot($input: HoldSlotInput!) { holdSlot(input: $input) { id holdExpiresAt } }": typeof types.HoldSlotDocument,
     "mutation ConfirmBooking($input: ConfirmBookingInput!) { confirmBooking(input: $input) { id status } }": typeof types.ConfirmBookingDocument,
     "mutation ReleaseHold($input: CancelInput!) { cancelAppointment(input: $input) { id status } }": typeof types.ReleaseHoldDocument,
+    "subscription HoldWatch { myAppointmentChanged { id status } }": typeof types.HoldWatchDocument,
+    "query HoldStatus { myAppointments(scope: UPCOMING, limit: 30) { id status } }": typeof types.HoldStatusDocument,
     "mutation CancelAppointment($input: CancelInput!) { cancelAppointment(input: $input) { id status cancelledLate } }": typeof types.CancelAppointmentDocument,
     "mutation RescheduleAppointment($input: RescheduleInput!) { rescheduleAppointment(input: $input) { id startsAt version } }": typeof types.RescheduleAppointmentDocument,
     "query SearchPatients($query: String!) { searchPatients(query: $query) { id fullName phone onlineBookingBlockedUntil } }": typeof types.SearchPatientsDocument,
@@ -75,6 +77,8 @@ const documents: Documents = {
     "mutation HoldSlot($input: HoldSlotInput!) { holdSlot(input: $input) { id holdExpiresAt } }": types.HoldSlotDocument,
     "mutation ConfirmBooking($input: ConfirmBookingInput!) { confirmBooking(input: $input) { id status } }": types.ConfirmBookingDocument,
     "mutation ReleaseHold($input: CancelInput!) { cancelAppointment(input: $input) { id status } }": types.ReleaseHoldDocument,
+    "subscription HoldWatch { myAppointmentChanged { id status } }": types.HoldWatchDocument,
+    "query HoldStatus { myAppointments(scope: UPCOMING, limit: 30) { id status } }": types.HoldStatusDocument,
     "mutation CancelAppointment($input: CancelInput!) { cancelAppointment(input: $input) { id status cancelledLate } }": types.CancelAppointmentDocument,
     "mutation RescheduleAppointment($input: RescheduleInput!) { rescheduleAppointment(input: $input) { id startsAt version } }": types.RescheduleAppointmentDocument,
     "query SearchPatients($query: String!) { searchPatients(query: $query) { id fullName phone onlineBookingBlockedUntil } }": types.SearchPatientsDocument,
@@ -184,6 +188,14 @@ export function graphql(source: "mutation ConfirmBooking($input: ConfirmBookingI
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
 export function graphql(source: "mutation ReleaseHold($input: CancelInput!) { cancelAppointment(input: $input) { id status } }"): (typeof documents)["mutation ReleaseHold($input: CancelInput!) { cancelAppointment(input: $input) { id status } }"];
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "subscription HoldWatch { myAppointmentChanged { id status } }"): (typeof documents)["subscription HoldWatch { myAppointmentChanged { id status } }"];
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "query HoldStatus { myAppointments(scope: UPCOMING, limit: 30) { id status } }"): (typeof documents)["query HoldStatus { myAppointments(scope: UPCOMING, limit: 30) { id status } }"];
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */

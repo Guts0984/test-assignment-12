@@ -1,11 +1,11 @@
-// Full-stack abuse check, run from two containers with fixed addresses on the compose network:
-//   attacker (172.31.77.50) floods the public edge (nginx) over HTTP and WebSocket, spoofs forwarding
-//   headers to frame the victim, and brute-forces a login; legit (172.31.77.51) keeps using the site.
+// Full-stack abuse check, run from two containers with fixed addresses on their own compose network (docker-compose.attack.yml):
+//   attacker (ATTACKER_IP, default 172.31.77.50) floods the public edge (nginx) over HTTP and WebSocket, spoofs forwarding
+//   headers to frame the victim, and brute-forces a login; legit (VICTIM_IP, default 172.31.77.51) keeps using the site.
 // Pass criteria: the attacker is throttled; the legit client keeps being served fast.
 const role = process.argv[2];
 const TARGET = process.env.TARGET ?? 'http://nginx';
 const SECONDS = Number(process.env.DURATION_S ?? 20);
-const VICTIM_IP = '172.31.77.51';
+const VICTIM_IP = process.env.VICTIM_IP ?? '172.31.77.51';
 const Q = JSON.stringify({ query: '{ clinics { id city } }' });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const p95 = (xs) => [...xs].sort((a, b) => a - b)[Math.max(0, Math.ceil(xs.length * 0.95) - 1)] ?? 0;

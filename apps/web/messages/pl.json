@@ -85,13 +85,16 @@
     "duration": "{minutes, plural, one {# minuta} few {# minuty} many {# minut} other {# minuty}}",
     "price": "Cena: {price}",
     "live": "Siatka odświeża się automatycznie",
-    "slotLabel": "{time}, {doctor}",
+    "slotLabel": "{date}, {time}, {doctor}",
     "waitlistTitle": "Brak dogodnego terminu?",
     "waitlistText": "Zapisz się na listę oczekujących: zaproponujemy termin, gdy tylko się zwolni.",
     "waitlistFrom": "Od",
     "waitlistTo": "Do",
     "waitlistJoin": "Zapisz się do kolejki",
-    "waitlistJoined": "Jesteś na liście oczekujących"
+    "waitlistJoined": "Jesteś na liście oczekujących",
+    "waitlistDoctor": "Lekarz",
+    "waitlistChooseDoctor": "Wybierz lekarza",
+    "waitlistPickDoctor": "Lista oczekujących jest prowadzona osobno dla każdego lekarza: wybierz lekarza, do którego chcesz się zapisać."
   },
   "hold": {
     "title": "Termin jest dla Ciebie zarezerwowany",
@@ -101,7 +104,10 @@
     "expired": "Rezerwacja wygasła, termin znów jest wolny.",
     "confirmed": "Zarezerwowano! Potwierdzenie wysłano e-mailem.",
     "summary": "{service} · {doctor} · {when} · {price}",
-    "patientsOnly": "Rezerwacja online jest tylko dla pacjentów. Jesteś zalogowany jako pracownik kliniki: rejestratorzy umawiają pacjentów w „Rezerwacji telefonicznej”."
+    "patientsOnly": "Rezerwacja online jest tylko dla pacjentów. Jesteś zalogowany jako pracownik kliniki: rejestratorzy umawiają pacjentów w „Rezerwacji telefonicznej”.",
+    "skipTo": "Rezerwacja terminu",
+    "inactive": "Ta rezerwacja już nie obowiązuje (termin został zmieniony lub zwolniony w innej karcie). Wybierz termin ponownie.",
+    "pickAgain": "Wybierz termin ponownie"
   },
   "cabinet": {
     "title": "Moje wizyty",
@@ -122,7 +128,17 @@
     "decline": "Odrzuć",
     "waitlist": "Lista oczekujących",
     "leave": "Opuść kolejkę",
-    "notifications": "Powiadomienia"
+    "notifications": "Powiadomienia",
+    "kinds": {
+      "booking_confirmed": "Wizyta potwierdzona",
+      "booking_rescheduled": "Wizyta przeniesiona",
+      "booking_cancelled": "Wizyta odwołana",
+      "sick_cancel": "Lekarz jest chory: wizyta odwołana. Wybierz inny termin",
+      "waitlist_offer": "Zwolnił się termin z listy oczekujących: zobacz propozycję",
+      "reminder_24h": "Przypomnienie: wizyta jutro",
+      "reminder_2h": "Przypomnienie: wizyta za dwie godziny"
+    },
+    "kindUnknown": "Nowe powiadomienie"
   },
   "status": {
     "held": "Rezerwacja",

@@ -1,4 +1,4 @@
-import { expect, type APIRequestContext, type BrowserContext, type Page } from '@playwright/test';
+import { expect, type APIRequestContext, type BrowserContext, type Locator, type Page } from '@playwright/test';
 
 export const API = process.env['E2E_API_URL'] ?? 'http://localhost:54000/graphql';
 export const PASSWORD = process.env['E2E_SEED_PASSWORD'] ?? 'Demo-Passw0rd!';
@@ -49,3 +49,21 @@ export const firstSlot = async (page: Page): Promise<{ start: string; doctor: st
 };
 
 export const slotByStart = (page: Page, start: string, doctor?: string) => page.locator(`[data-testid="slot"][data-start="${start}"]${doctor ? `[data-doctor="${doctor}"]` : ''}`);
+
+/**
+ * Presses Tab until `target` has focus and returns how many presses it took (fails after `max`).
+ * Keyboard tests use this instead of `.focus()`, so a 465-stop tab order cannot hide.
+ */
+export const tabTo = async (page: Page, target: Locator, max: number): Promise<number> => {
+  for (let i = 1; i <= max; i++) {
+    await page.keyboard.press('Tab');
+    if (await target.evaluate((el) => el === document.activeElement)) return i;
+  }
+  throw new Error(`focus did not reach the target within ${max} Tab presses`);
+};
+
+/** Chooses the option with `value` in the focused native select using only arrow keys. */
+export const arrowSelect = async (page: Page, select: Locator, value: string, max = 25): Promise<void> => {
+  for (let i = 0; i < max && (await select.inputValue()) !== value; i++) { await page.keyboard.press('ArrowDown'); await page.waitForTimeout(350); }
+  expect(await select.inputValue()).toBe(value);
+};

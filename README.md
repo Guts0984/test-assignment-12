@@ -13,7 +13,7 @@ Nothing else: `db-init` applies migrations and seeds once (3 clinics, 40 doctors
 | What | Where |
 | --- | --- |
 | Website (nginx → web, `/graphql` → api, one origin) | http://localhost:8080 (`HTTP_PORT`) |
-| Mail stub: SMTP on 1025, every email shown on a page | http://localhost:8025 |
+| Mail stub: SMTP on 1025, every email shown on a page | http://localhost:8025 (Postgres, Redis, SMTP and this UI are published on 127.0.0.1 only) |
 | More workers | `docker compose up --scale worker=3` |
 
 **Demo logins** (password = `SEED_PASSWORD` in `.env`, default `Demo-Passw0rd!`): `manager@demo.local`, `registrar.kyiv@demo.local`, `registrar.lviv@demo.local`, `registrar.warsaw@demo.local`, `doctor01@demo.local` … `doctor40@demo.local`, `patient00001@demo.local` … `patient18000@demo.local` (the other 2 000 patients are phone-only), or sign up on the site.
@@ -44,9 +44,9 @@ End-to-end (Playwright, real stack, 8-second holds): see the Web section. Full-s
 
 ## Edge (nginx) and abuse checks
 
-`infra/nginx/nginx.conf`: one origin; `/graphql` carries HTTP and WebSocket; per-IP `limit_req` (30 r/s, burst 60) and `limit_conn`; header/body timeouts; 100 KB body limit; security headers; `X-Forwarded-For` is *replaced* with the socket address, and the API trusts it only from the docker network (`TRUST_PROXY_CIDRS`). The API adds Redis-backed limits (see *API*), including WebSocket connects and subscribes.
+`infra/nginx/nginx.conf`: one origin; `/graphql` carries HTTP and WebSocket; per-IP `limit_req` (30 r/s, burst 60) and `limit_conn`; header/body timeouts; 100 KB body limit; security headers; `X-Forwarded-For` is *replaced* with the socket address, and the API trusts it only from the docker network (`TRUST_PROXY_CIDRS`; compose uses Docker's automatic subnet, which lies in `172.16.0.0/12`, so a second copy of the project can run beside this one). nginx resolves `api` and `web` through Docker's DNS (`resolver 127.0.0.11 valid=5s`, upstreams as variables), so after a container is recreated with a new IP the site recovers within seconds without restarting nginx. The API adds Redis-backed limits (see *API*), including WebSocket connects and subscribes.
 
-`infra/attack/run.sh` runs two containers with fixed addresses against the real edge: the attacker (172.31.77.50) floods HTTP and WebSocket for 20 s, spoofs `X-Forwarded-For`/`X-Real-IP` as the victim and brute-forces a login; the legit client (172.31.77.51) keeps using the site. Result on this stack: attacker 129 377 requests, 99.8 % answered 429, 198 login attempts throttled, 190 of 200 WebSocket opens refused; legit client 192/192 requests OK, p95 7 ms, WebSocket stayed connected.
+`infra/attack/run.sh` (`ATTACK_SECONDS=20 infra/attack/run.sh`; needs the stack up) runs two containers with fixed addresses on their own network `attack` (`docker-compose.attack.yml`, subnet `172.31.77.0/24`, change the prefix with `ATTACK_NET_PREFIX`; nginx is attached to it too) against the real edge: the attacker (172.31.77.50) floods HTTP and WebSocket for 20 s, spoofs `X-Forwarded-For`/`X-Real-IP` as the victim and brute-forces a login; the legit client (172.31.77.51) keeps using the site. Result on this stack: attacker 129 377 requests, 99.8 % answered 429, 198 login attempts throttled, 190 of 200 WebSocket opens refused; legit client 192/192 requests OK, p95 7 ms, WebSocket stayed connected.
 
 ## Decisions on ambiguous points
 
@@ -56,12 +56,15 @@ End-to-end (Playwright, real stack, 8-second holds): see the Web section. Full-s
 4. **Grid** starts are aligned to :00 :15 :30 :45 of the clinic wall clock.
 5. **Sick day** cancels without penalty, emails each patient once, and puts them first in that doctor's waiting list (priority, next 14 days). Marking twice changes nothing. Other schedule changes that would orphan booked visits are refused (`SCHEDULE_CONFLICT`).
 6. **Penalties:** the 2nd no-show or late cancel within 90 days closes *online* booking for 30 days from that moment; registrars can still book.
-7. **One live hold per patient** (a new hold releases the previous): nobody can freeze the grid. Holds count toward the 3-visit limit.
+7. **One live online hold per patient** (a new online hold releases the previous and hands it to the waiting list): nobody can freeze the grid. A registrar's phone hold neither replaces nor is replaced by it. Holds count toward the 3-visit limit.
 8. **Report:** utilization = minutes of live visits ÷ working minutes (templates + exceptions − breaks); no-show / late-cancel share is over visits that were ever booked; revenue is completed visits per service and currency (UAH and PLN are never summed).
 9. **Waiting-list offers** are held rows, handed over inside the transaction that frees the time; unsuitable people are skipped, not removed; a patient already holding an offer is not given another at once; offers bypass the online block (the clinic initiated them).
 10. **Seed capacity:** the rules cap live visits at ~65 000 in 180 days for 40 doctors, so ~85 000 of the 150 000 appointments are cancelled rows. Upcoming days are filled less (45 %) so the demo grid has free time.
 11. **No email verification** at sign-up (no external services allowed); all mail goes to the stub.
 12. **Clock:** the engine uses an injected clock (tests move time); servers are assumed NTP-synced.
+14. **Sign-up never claims an existing patient record.** A registrar may have created a patient from a phone call; the phone number alone proves nothing (no email/SMS verification here), so attaching that record to a new account would let anyone who knows a number read that person's visit history. Sign-up always creates a new patient, and a phone number already on file is refused with `BAD_USER_INPUT` / `fieldErrors.phone` (no details of the other record are revealed). Linking an old record to an account is a manual clinic task.
+15. **A patient blocked from online booking can still reschedule an existing visit**: the block closes *new* online bookings (hold / confirm); moving a visit already owned is not a new booking and the clinic would rather have it moved than no-shown.
+16. **A late cancel done by the registrar on the patient's behalf still penalises the patient** (the rule is about the visit being dropped under 24 h, not about who clicked); the registrar can see the flag in the history.
 13. **Extra compose services:** `db-init` (one-shot) and `nginx` next to the required six.
 
 ## Acceptance checklist → where it is verified
@@ -213,6 +216,7 @@ Code-first schema (committed as [apps/api/schema.gql](apps/api/schema.gql), rege
 **GraphQL cannot take the server down** (`security.test.ts`)
 
 - Depth ≤ 10, field count ≤ 400 (also bounds alias bombs), estimated cost ≤ 2000 (a list multiplies what is selected inside it by its `limit`, default 10), checked before execution for HTTP and for subscriptions. Fragment cycles are validation errors. Batching is off, bodies are limited to 100 KB, slow clients are cut off (header/request timeouts).
+- Root fields that do real work have an explicit price (`ROOT_FIELD_COST` in `infra/security.ts`: `availability` 50, `report` 100, ...), so aliases of them multiply; `limit` is clamped to [1, 1000] when priced. Each request's cost is also charged to a per-IP budget (`RATE_COST_PER_MIN`, default 20000). Free text rejects control characters / lone surrogates, calendar dates are limited to 2000-2100. Sign-out closes the user's open WebSockets (on every replica, through the event bus; a 15 s sweep also catches expiry).
 - Introspection, the landing page and "did you mean" hints are off in production; Apollo CSRF prevention is on (simple cross-site requests are refused) and CORS only allows `CORS_ORIGINS`.
 - **DataLoader:** a list of 54 visits with doctor, clinic, service and patient costs the same number of SQL queries (≤ 8) as a list of 3.
 - Errors: every failure has an `extensions.code` from `@clinic/shared`; input errors carry `fieldErrors` for the form. Unknown errors are logged and masked. A fuzz test sends arbitrary JSON as variables and asserts nothing becomes `INTERNAL_SERVER_ERROR`.
@@ -249,13 +253,15 @@ src/shared            api (urql + generated types), config (env.ts), i18n, lib, 
 `pnpm --filter @clinic/web lint:fsd` (Steiger) checks the layer and public-API rules in CI. Types of every response come only from `apps/api/schema.gql` through GraphQL Codegen (`pnpm --filter @clinic/web codegen`; CI regenerates and fails on a diff). No GraphQL response type is written by hand.
 
 - **Live grid:** the slot grid subscribes to `availabilityChanged` and refetches the affected view, so a second browser sees a time disappear (and come back) without reloading. The cabinet, the registrar board, the doctor's week and waiting-list offers update the same way.
-- **Hold:** choosing a time calls `holdSlot` at once; the countdown shows the server's deadline; confirm sends one idempotency key per hold (a double click books once); when the time is up the panel says so and the time is free for everyone.
+- **Hold:** choosing a time calls `holdSlot` at once; the countdown shows the server's deadline; confirm sends one idempotency key per hold (a double click books once); when the time is up the panel says so and the time is free for everyone. A hold replaced from a second tab is noticed (live `myAppointmentChanged` events, a re-check when the tab regains focus, and `INVALID_TRANSITION` / `NOT_FOUND` on Confirm) and the panel says "this reservation is no longer active, pick a time again" instead of counting down.
+- **Waiting list is per doctor:** the card always has a doctor select (preselected from the search, otherwise empty); the join button stays disabled until a doctor is chosen, nothing is guessed.
+- **Keyboard:** when the reservation panel appears, focus moves to it (it sits before the grid in DOM order, so Confirm is one Tab away) and returns to the chosen time when it closes; the registrar's phone form behaves the same. Time buttons are labelled with date, time and doctor. Cabinet notifications are translated messages with the time in the page language.
 - **State in the URL:** city / service / doctor, the registrar's date, the doctor's week and the report period (`?from=&to=&clinic=`) live in the query string and use history `push`, so reload and Back restore them.
 - **Clinic time, not browser time:** the API sends the clinic wall-clock `localTime`; the UI shows exactly that, plus the clinic's time zone. Money uses the clinic currency (`1 234,50 ₴`, `1 234,50 zł`), dates the clinic zone, plurals the ICU rules of the language (`3 записи / 5 записів`, `3 wizyty / 5 wizyt`). A unit test checks that `uk`, `en`, `pl` have the same keys and placeholders.
 - **Forms:** React Hook Form + the same Zod schemas as the API; errors appear next to the field with `aria-invalid`, `aria-describedby` and `role=alert`, in the user's language, from the client or from the server (`extensions.fieldErrors`). Everything is a native control: the patient path and the registrar's phone-booking path are tested with the keyboard only.
 - Queries are sent with POST only (the API refuses simple GET requests as CSRF protection).
 
-**End-to-end tests** (`apps/web/e2e`, Playwright against the real stack; hold and offer lifetimes are 8 s there): hold → confirm → another browser loses the time without reload; unconfirmed hold returns the time and the late confirm is refused; cancel with a waiting list → the first gets the offer live and accepts, the second gets nothing; the same with the first one silent; keyboard-only patient and registrar; URL state with reload and Back; a New York browser sees Warsaw clinic times; locales; field errors; registrar phone booking, sick day and report. Run locally:
+**End-to-end tests** (`apps/web/e2e`, Playwright against the real stack; hold and offer lifetimes are 8 s there): hold → confirm → another browser loses the time without reload; unconfirmed hold returns the time and the late confirm is refused; cancel with a waiting list → the first gets the offer live and accepts, the second gets nothing; the same with the first one silent; keyboard-only patient and registrar (Tab/Enter/Space/arrows from the page top; Confirm within 3 Tab stops), focus return, a stale second tab, the waiting list that must be given a doctor, translated notifications; URL state with reload and Back; a New York browser sees Warsaw clinic times; locales; field errors; registrar phone booking, sick day and report. Run locally:
 
 ```
 docker compose -f docker-compose.yml -f docker-compose.e2e.yml up -d --build api worker

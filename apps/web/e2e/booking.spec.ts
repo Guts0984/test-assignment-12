@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { catalog, firstSlot, newPatient, openSearch, slotByStart, type Catalog } from './helpers';
+import { arrowSelect, catalog, firstSlot, newPatient, openSearch, slotByStart, tabTo, type Catalog } from './helpers';
 
 let c: Catalog;
 test.beforeAll(async ({ request }) => { c = await catalog(request); });
@@ -57,29 +57,93 @@ test('an unconfirmed hold ends by itself: the time comes back for everyone and t
   await a.close(); await b.close();
 });
 
-test('the whole patient path works with the keyboard only', async ({ browser }) => {
+/** Starts at the top of the search page and reaches the first time slot with Tab / arrows only. */
+const keyboardToFirstSlot = async (page: import('@playwright/test').Page): Promise<import('@playwright/test').Locator> => {
+  await page.goto('/en');
+  const city = page.getByLabel('City');
+  const service = page.getByLabel('Service');
+  await expect(city.locator('option')).not.toHaveCount(1);
+  await tabTo(page, city, 30); // the header's links come first; the very first Tab starts at the page top
+  await arrowSelect(page, city, c.kyiv, 6);
+  await expect(service.locator('option')).not.toHaveCount(1);
+  await tabTo(page, service, 3);
+  await arrowSelect(page, service, c.service);
+  await expect(page.getByTestId('slot-grid')).toBeVisible();
+  const first = page.getByTestId('slot').first();
+  await expect(first).toBeVisible();
+  await tabTo(page, first, 3); // doctor select, then straight into the grid
+  return first;
+};
+
+test('the whole patient path works with the keyboard only: Confirm is a few Tab stops after choosing a time', async ({ browser }) => {
   const ctx = await browser.newContext();
   await newPatient(ctx, 'kbd');
   const page = await ctx.newPage();
-  await page.goto('/en');
-  const kb = page.keyboard;
-  await expect(page.getByLabel('City').locator('option')).not.toHaveCount(1);
-  await page.getByLabel('City').focus();
-  for (let i = 0; i < 4 && (await page.getByLabel('City').inputValue()) !== c.kyiv; i++) { await kb.press('ArrowDown'); await page.waitForTimeout(400); }
-  expect(await page.getByLabel('City').inputValue()).toBe(c.kyiv);
-  await expect(page.getByLabel('Service').locator('option')).not.toHaveCount(1);
-  await page.getByLabel('Service').focus();
-  for (let i = 0; i < 20 && (await page.getByLabel('Service').inputValue()) !== c.service; i++) { await kb.press('ArrowDown'); await page.waitForTimeout(350); }
-  expect(await page.getByLabel('Service').inputValue()).toBe(c.service);
-  await expect(page.getByTestId('slot-grid')).toBeVisible();
-  const slot = page.getByTestId('slot').first();
-  await slot.focus();
-  await expect(slot).toBeFocused();
-  await kb.press('Enter');
-  await expect(page.getByTestId('hold-panel')).toHaveAttribute('data-state', 'held');
-  await page.getByTestId('confirm-booking').focus();
-  await kb.press('Enter');
+  const first = await keyboardToFirstSlot(page);
+  // the label a screen reader reads carries the DATE, the time and the doctor
+  const day = await first.locator('xpath=ancestor::*[@data-day]').getAttribute('data-day');
+  const dayLabel = new Intl.DateTimeFormat('en', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' }).format(new Date(`${day}T12:00:00Z`));
+  const label = (await first.getAttribute('aria-label'))!;
+  expect(label).toContain(dayLabel);
+  expect(label).toMatch(/\b\d\d:\d\d\b/);
+  expect(label.split(', ').length).toBeGreaterThanOrEqual(4);
+
+  await page.keyboard.press('Enter');
+  const panel = page.getByTestId('hold-panel');
+  await expect(panel).toHaveAttribute('data-state', 'held');
+  await expect(panel.getByRole('heading')).toBeFocused(); // focus moved to the reservation by itself
+  const tabs = await tabTo(page, page.getByTestId('confirm-booking'), 10);
+  expect(tabs).toBeLessThanOrEqual(3);
+  await page.keyboard.press('Enter');
   await expect(page.getByTestId('booked-note')).toBeVisible();
+  await ctx.close();
+});
+
+test('a second tab: the hold replaced in tab 2 stops counting down in tab 1 (live event)', async ({ browser }) => {
+  const { ctx, p1 } = await twoTabs(browser, 'tab2live', false);
+  await expect(p1.getByTestId('hold-panel')).toHaveAttribute('data-state', 'released');
+  await expect(p1.getByTestId('released-note')).toBeVisible();
+  await expect(p1.getByTestId('countdown')).toHaveCount(0);
+  await expect(p1.getByTestId('confirm-booking')).toHaveCount(0);
+  await ctx.close();
+});
+
+test('a second tab without live events: coming back to the tab re-checks the hold', async ({ browser }) => {
+  const { ctx, p1 } = await twoTabs(browser, 'tab2focus', true);
+  await expect(p1.getByTestId('hold-panel')).toHaveAttribute('data-state', 'held'); // nothing told it yet
+  await p1.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await expect(p1.getByTestId('hold-panel')).toHaveAttribute('data-state', 'released');
+  await ctx.close();
+});
+
+test('a second tab without live events: Confirm on a replaced hold says it is no longer active', async ({ browser }) => {
+  const { ctx, p1 } = await twoTabs(browser, 'tab2conf', true);
+  await p1.getByTestId('confirm-booking').click();
+  await expect(p1.getByTestId('hold-panel')).toHaveAttribute('data-state', 'released');
+  await expect(p1.getByTestId('released-note')).toContainText('no longer active');
+  // and nothing was booked by that click: tab 2's hold is still the live one
+  await expect(p1.context().pages()[1]!.getByTestId('hold-panel')).toHaveAttribute('data-state', 'held');
+  await ctx.close();
+});
+
+test('cabinet notifications are translated messages with a locale date, not raw codes', async ({ browser }) => {
+  const ctx = await browser.newContext({ locale: 'en-US' }); // a US browser must not leak a US date into the Ukrainian page
+  await newPatient(ctx, 'notif');
+  const page = await ctx.newPage();
+  await openSearch(page, c, c.kyiv);
+  const { start, doctor } = await firstSlot(page);
+  await slotByStart(page, start, doctor).click();
+  await page.getByTestId('confirm-booking').click();
+  await expect(page.getByTestId('booked-note')).toBeVisible();
+  const item = page.locator('[data-kind="booking_confirmed"]');
+  await expect(async () => { await page.goto('/uk/cabinet'); await expect(item.first()).toBeVisible({ timeout: 2000 }); }).toPass({ timeout: 20_000 });
+  const text = (await item.first().innerText());
+  expect(text).toContain('Запис підтверджено');
+  expect(text).not.toContain('booking_confirmed');
+  expect(text).not.toMatch(/\b(AM|PM)\b/);
+  expect(text).not.toMatch(/\d{1,2}\/\d{1,2}\/\d{4}/);
+  await page.goto('/pl/cabinet');
+  await expect(page.locator('[data-kind="booking_confirmed"]').first()).toContainText('Wizyta potwierdzona');
   await ctx.close();
 });
 

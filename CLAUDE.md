@@ -97,8 +97,7 @@ E2E_BASE_URL=http://localhost:8080 E2E_API_URL=http://localhost:8080/graphql E2E
   pnpm --filter @clinic/web e2e
 
 # abuse check through nginx (production edge settings)
-docker compose up -d --no-deps api nginx
-ATTACK_SECONDS=20 infra/attack/run.sh
+ATTACK_SECONDS=20 infra/attack/run.sh      # (re)creates api + nginx with the production edge, then runs attacker/legit
 
 # redis loss drill
 docker compose exec redis redis-cli FLUSHALL && docker compose restart worker
@@ -110,4 +109,7 @@ docker compose exec redis redis-cli FLUSHALL && docker compose restart worker
 - NestJS GraphQL needs emitted decorator metadata: tests use SWC (`unplugin-swc`), the API runs from the `tsc` build, not `tsx`.
 - Tests that need distinct client addresses use `node:http` with `localAddress` (127.0.0.x); `fetch` ignores it.
 - Date-dependent tests use "N-th workday from today"; keep N small (booking window is 2 h – 60 days).
-- Other projects on the dev machine may use 3100, 4000 or 8080: compose publishes only nginx (`HTTP_PORT`, default 8080); change it in `.env` if taken.
+- Other projects on the dev machine may use 3100, 4000 or 8080: the only port published to the network is nginx (`HTTP_PORT`, default 8080); Postgres, Redis, Mailpit (SMTP + UI) are published on 127.0.0.1 only (Redis has no password); change ports in `.env` if taken. To run a second copy: `docker compose -p other --env-file other.env ...` (compose uses Docker's automatic subnet, no fixed one).
+- nginx resolves `api`/`web` via `resolver 127.0.0.11` with variables in `proxy_pass` (not `upstream` blocks) so it follows container IP changes; keep it that way in both nginx configs.
+- `docker-compose.attack.yml` owns the only fixed addresses (own `attack` network, 172.31.77.0/24 or `ATTACK_NET_PREFIX`); `infra/attack/run.sh` brings api+nginx up with it. The default network must stay inside `TRUST_PROXY_CIDRS`.
+- Web a11y rules: the hold/phone panels come BEFORE the grid in DOM order and take focus on appearing; slot buttons are labelled date+time+doctor; keyboard e2e tests use Tab/arrows from the page top (`tabTo`, `arrowSelect` in `e2e/helpers.ts`), never `.focus()` shortcuts. The waiting-list card never guesses a doctor.

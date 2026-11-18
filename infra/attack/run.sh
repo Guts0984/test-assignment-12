@@ -3,6 +3,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 C="docker compose -f docker-compose.yml -f docker-compose.attack.yml"
+# api + nginx with the production edge settings; nginx is also attached to the attack network
+$C up -d --no-deps --wait api nginx
 $C --profile attack up -d --no-deps attacker
 set +e
 $C --profile attack run --rm --no-deps legit

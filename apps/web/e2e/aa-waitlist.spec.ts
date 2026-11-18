@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { catalog, firstSlot, newPatient, openSearch, slotByStart, type Catalog } from './helpers';
+import { catalog, firstSlot, gql, newPatient, openSearch, slotByStart, type Catalog } from './helpers';
 
 let c: Catalog;
 test.beforeAll(async ({ request }) => { c = await catalog(request); });
@@ -78,4 +78,52 @@ test('the first patient does not answer: after the offer time the second one rec
     await expect(p.getByTestId('waitlist-entry')).toHaveCount(0);
   }
   await c1.close(); await c2.close(); await c3.close();
+});
+
+test('with "Any doctor" the waiting list never guesses: the patient must choose a doctor, and the entry is for that doctor', async ({ browser }) => {
+  const ctx = await browser.newContext();
+  await newPatient(ctx, 'wlpick');
+  const page = await ctx.newPage();
+  await openSearch(page, c, c.kyiv); // no doctor in the URL
+  const doctorSelect = page.getByTestId('waitlist-doctor');
+  const join = page.getByTestId('join-waitlist');
+  await expect(doctorSelect).toHaveValue('');
+  await expect(join).toBeDisabled();
+  await expect(page.getByTestId('waitlist-pick-doctor')).toBeVisible();
+  // implicit submit with Enter in a date field must not slip through the disabled button
+  await page.getByLabel('From').focus();
+  await page.keyboard.press('Enter');
+  await expect(page.getByTestId('waitlist-joined')).toHaveCount(0);
+  const mine = async (): Promise<{ doctorId: string }[]> => ((await gql<{ myWaitlist: { doctorId: string }[] }>(ctx.request, `{ myWaitlist { doctorId } }`)).data!.myWaitlist);
+  expect(await mine()).toHaveLength(0);
+  // the list is the clinic's doctors for this service; choose the SECOND one (the old bug queued the first)
+  await expect.poll(() => doctorSelect.locator('option').count()).toBeGreaterThan(1); // the doctors arrive after the page (at least one real doctor besides the empty choice)
+  const options = await doctorSelect.locator('option').evaluateAll((os) => os.map((o) => (o as HTMLOptionElement).value).filter(Boolean));
+  expect(options.length).toBeGreaterThan(1);
+  const wanted = options[1]!;
+  await doctorSelect.selectOption(wanted);
+  await expect(join).toBeEnabled();
+  await join.click();
+  await expect(page.getByTestId('waitlist-joined')).toBeVisible();
+  expect((await mine()).map((e) => e.doctorId)).toEqual([wanted]);
+  // choosing "no doctor" again disables the button again
+  await doctorSelect.selectOption('');
+  await expect(join).toBeDisabled();
+  // tidy up: later specs start with an empty queue
+  await page.goto('/en/cabinet');
+  await page.getByRole('button', { name: 'Leave the queue' }).click();
+  await expect(page.getByTestId('waitlist-entry')).toHaveCount(0);
+  await ctx.close();
+});
+
+test('a doctor chosen in the search is preselected in the waiting-list card', async ({ browser }) => {
+  const ctx = await browser.newContext();
+  await newPatient(ctx, 'wlpre');
+  const page = await ctx.newPage();
+  await openSearch(page, c, c.kyiv);
+  const { doctor } = await firstSlot(page);
+  await openSearch(page, c, c.kyiv, doctor);
+  await expect(page.getByTestId('waitlist-doctor')).toHaveValue(doctor);
+  await expect(page.getByTestId('join-waitlist')).toBeEnabled();
+  await ctx.close();
 });

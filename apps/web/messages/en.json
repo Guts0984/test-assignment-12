@@ -85,13 +85,16 @@
     "duration": "{minutes, plural, one {# minute} other {# minutes}}",
     "price": "Price: {price}",
     "live": "The grid updates by itself",
-    "slotLabel": "{time}, {doctor}",
+    "slotLabel": "{date}, {time}, {doctor}",
     "waitlistTitle": "No convenient time?",
     "waitlistText": "Join the waiting list: we will offer you a time as soon as one frees up.",
     "waitlistFrom": "From",
     "waitlistTo": "To",
     "waitlistJoin": "Join the queue",
-    "waitlistJoined": "You are on the waiting list"
+    "waitlistJoined": "You are on the waiting list",
+    "waitlistDoctor": "Doctor",
+    "waitlistChooseDoctor": "Choose a doctor",
+    "waitlistPickDoctor": "The waiting list is kept per doctor: choose the doctor you want to queue for."
   },
   "hold": {
     "title": "This time is reserved for you",
@@ -101,7 +104,10 @@
     "expired": "The reservation ended, the time is free again.",
     "confirmed": "Booked! A confirmation email is on its way.",
     "summary": "{service} · {doctor} · {when} · {price}",
-    "patientsOnly": "Online booking is for patients only. You are signed in as clinic staff: registrars book patients under \"Phone booking\"."
+    "patientsOnly": "Online booking is for patients only. You are signed in as clinic staff: registrars book patients under \"Phone booking\".",
+    "skipTo": "Time reservation",
+    "inactive": "This reservation is no longer active (the time was changed or released in another tab). Please pick a time again.",
+    "pickAgain": "Pick a time again"
   },
   "cabinet": {
     "title": "My appointments",
@@ -122,7 +128,17 @@
     "decline": "Decline",
     "waitlist": "Waiting list",
     "leave": "Leave the queue",
-    "notifications": "Notifications"
+    "notifications": "Notifications",
+    "kinds": {
+      "booking_confirmed": "Appointment confirmed",
+      "booking_rescheduled": "Appointment rescheduled",
+      "booking_cancelled": "Appointment cancelled",
+      "sick_cancel": "The doctor is ill: appointment cancelled. Please pick another time",
+      "waitlist_offer": "A time from your waiting list is free: see the offer",
+      "reminder_24h": "Reminder: your visit is tomorrow",
+      "reminder_2h": "Reminder: your visit is in two hours"
+    },
+    "kindUnknown": "New notification"
   },
   "status": {
     "held": "Reserved",

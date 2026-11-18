@@ -4,16 +4,20 @@ import { useQuery } from 'urql';
 import { useTranslations } from 'next-intl';
 import { graphql } from '@/shared/api';
 import { PageTitle } from '@/shared/ui';
-import { useUrlState } from '@/shared/lib';
+import { useFormat, useUrlState } from '@/shared/lib';
 import { AppointmentList } from '@/widgets/appointment-list';
 import { MyWaitlist, OffersPanel } from '@/features/waitlist';
 import { useMe } from '@/entities/session';
 
 const NotificationsDocument = graphql(`query MyNotifications { myNotifications(limit: 10) { id kind createdAt readAt } }`);
 const TABS = ['tab'] as const;
+const KINDS: readonly string[] = ['booking_confirmed', 'booking_rescheduled', 'booking_cancelled', 'sick_cancel', 'waitlist_offer', 'reminder_24h', 'reminder_2h'];
+// a notification is not tied to one clinic, so its creation time is shown in the viewer's own zone, in the page language
+const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
 export const CabinetPage = () => {
   const t = useTranslations('cabinet');
+  const f = useFormat();
   const [q, setQ] = useUrlState(TABS);
   const tab = q.tab === 'past' ? 'PAST' : 'UPCOMING';
   const { me, fetching } = useMe();
@@ -33,7 +37,7 @@ export const CabinetPage = () => {
       <div role="tabpanel"><AppointmentList scope={tab} /></div>
       {(data?.myNotifications ?? []).length > 0 && (
         <section aria-labelledby="nt" className="mt-8"><h2 id="nt" className="mb-2 text-lg font-semibold">{t('notifications')}</h2>
-          <ul className="text-sm text-slate-700">{data?.myNotifications.map((n) => <li key={n.id}>{n.kind} · {new Date(n.createdAt).toLocaleString()}</li>)}</ul></section>
+          <ul className="text-sm text-slate-700">{data?.myNotifications.map((n) => <li key={n.id} data-kind={n.kind}>{KINDS.includes(n.kind) ? t(`kinds.${n.kind}` as 'kinds.booking_confirmed') : t('kindUnknown')} · <time dateTime={n.createdAt}>{f.dateTime(n.createdAt, tz)}</time></li>)}</ul></section>
       )}
     </>
   );

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery } from 'urql';
 import { useTranslations } from 'next-intl';
 import { phoneSchema } from '@clinic/shared';
@@ -29,6 +29,9 @@ export const PhoneBookingForm = ({ slot, onBooked }: { slot: PhoneSlot; onBooked
   const [done, setDone] = useState(false);
   const [{ data }] = useQuery({ query: SearchDocument, variables: { query: q }, pause: q.trim().length < 2 });
   const [, book] = useMutation(BookDocument);
+  const heading = useRef<HTMLHeadingElement>(null);
+  // keyboard: the form appears next to the grid, so focus moves to it (its first field is one Tab away)
+  useEffect(() => { heading.current?.focus(); }, [slot.doctorId, slot.startsAt]);
 
   const submit = async (): Promise<void> => {
     setCode(null);
@@ -44,7 +47,7 @@ export const PhoneBookingForm = ({ slot, onBooked }: { slot: PhoneSlot; onBooked
 
   return (
     <Card aria-labelledby="pb-title" data-testid="phone-booking">
-      <h2 id="pb-title" className="mb-3 text-lg font-semibold">{t('phoneBooking')}</h2>
+      <h2 id="pb-title" ref={heading} tabIndex={-1} className="mb-3 text-lg font-semibold focus:outline-none focus-visible:outline-2 focus-visible:outline-sky-700">{t('phoneBooking')}</h2>
       <TextField label={t('searchPatient')} value={q} onChange={(e) => { setQ(e.target.value); setChosen(null); }} />
       {(data?.searchPatients ?? []).length > 0 && (
         <ul className="my-2 flex flex-col gap-1" aria-label={t('searchPatient')}>

@@ -6,7 +6,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
-    ports: ["${POSTGRES_PORT:-5432}:5432"]
+    ports: ["127.0.0.1:${POSTGRES_PORT:-5432}:5432"]   # loopback only: tests/psql from the host, never the LAN
     volumes: [pgdata:/var/lib/postgresql/data]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
@@ -55,6 +55,7 @@ services:
       RATE_SIGNIN_IP_PER_MIN: ${RATE_SIGNIN_IP_PER_MIN:-20}
       RATE_SIGNUP_PER_HOUR: ${RATE_SIGNUP_PER_HOUR:-5}
       RATE_HOLD_PER_MIN: ${RATE_HOLD_PER_MIN:-10}
+      RATE_COST_PER_MIN: ${RATE_COST_PER_MIN:-20000}
       RATE_WS_CONNECT_PER_MIN: ${RATE_WS_CONNECT_PER_MIN:-30}
       RATE_WS_SUBSCRIBE_PER_MIN: ${RATE_WS_SUBSCRIBE_PER_MIN:-60}
       WS_MAX_CONN_PER_IP: ${WS_MAX_CONN_PER_IP:-10}
@@ -129,7 +130,7 @@ services:
 
   redis:
     image: redis:7-alpine
-    ports: ["${REDIS_PORT:-6379}:6379"]
+    ports: ["127.0.0.1:${REDIS_PORT:-6379}:6379"]   # no password: loopback only
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 3s
@@ -138,12 +139,7 @@ services:
 
   mailpit:
     image: axllent/mailpit:v1.33.0
-    ports: ["${MAILPIT_UI_PORT:-8025}:8025", "${SMTP_PORT:-1025}:1025"]
-
-networks:
-  default:
-    ipam:
-      config: [{ subnet: 172.31.77.0/24 }]
+    ports: ["127.0.0.1:${MAILPIT_UI_PORT:-8025}:8025", "127.0.0.1:${SMTP_PORT:-1025}:1025"]   # loopback only
 
 volumes:
   pgdata:
