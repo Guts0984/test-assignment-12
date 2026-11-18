@@ -13,14 +13,17 @@ test('hold → confirm → a second browser sees the time disappear WITHOUT relo
   await openSearch(pa, c, c.kyiv);
   await openSearch(pb, c, c.kyiv);
   const { start, doctor } = await firstSlot(pa);
-  await expect(slotByStart(pb, start)).toBeVisible();
+  await expect(slotByStart(pb, start, doctor)).toBeVisible();
 
-  await slotByStart(pa, start).click();
+  await slotByStart(pa, start, doctor).click();
   await expect(pa.getByTestId('hold-panel')).toHaveAttribute('data-state', 'held');
-  await expect(slotByStart(pb, start)).toHaveCount(0); // gone for the other browser the moment it is held
+  // my own reserved time stays on screen and is the ONLY highlighted one (other doctors at the same time are not)
+  await expect(slotByStart(pa, start, doctor)).toBeVisible();
+  await expect(pa.locator('[data-testid="slot"][aria-pressed="true"]')).toHaveCount(1);
+  await expect(slotByStart(pb, start, doctor)).toHaveCount(0); // gone for the other browser the moment it is held
   await pa.getByTestId('confirm-booking').click();
   await expect(pa.getByTestId('booked-note')).toBeVisible();
-  await expect(slotByStart(pb, start)).toHaveCount(0);
+  await expect(slotByStart(pb, start, doctor)).toHaveCount(0);
 
   // and the visit shows in the cabinet
   await pa.goto('/en/cabinet');
@@ -31,8 +34,7 @@ test('hold → confirm → a second browser sees the time disappear WITHOUT relo
   await pa.getByTestId('cancel-visit').click();
   await pa.getByTestId('cancel-yes').click();
   await expect(pa.getByTestId('no-visits')).toBeVisible();
-  await expect(slotByStart(pb, start)).toBeVisible();
-  void doctor;
+  await expect(slotByStart(pb, start, doctor)).toBeVisible();
   await a.close(); await b.close();
 });
 
@@ -44,14 +46,14 @@ test('an unconfirmed hold ends by itself: the time comes back for everyone and t
   const pb = await b.newPage();
   await openSearch(pa, c, c.kyiv);
   await openSearch(pb, c, c.kyiv);
-  const { start } = await firstSlot(pa);
-  await slotByStart(pa, start).click();
+  const { start, doctor } = await firstSlot(pa);
+  await slotByStart(pa, start, doctor).click();
   await expect(pa.getByTestId('hold-panel')).toHaveAttribute('data-state', 'held');
-  await expect(slotByStart(pb, start)).toHaveCount(0);
+  await expect(slotByStart(pb, start, doctor)).toHaveCount(0);
   await expect(pa.getByTestId('countdown')).toContainText(/0:0\d|0:1\d/); // test stack: 8-second holds
   // nobody confirms: after the TTL the panel says so and the second browser gets the time back
   await expect(pa.getByTestId('expired-note')).toBeVisible({ timeout: 20_000 });
-  await expect(slotByStart(pb, start)).toBeVisible({ timeout: 20_000 });
+  await expect(slotByStart(pb, start, doctor)).toBeVisible({ timeout: 20_000 });
   await a.close(); await b.close();
 });
 

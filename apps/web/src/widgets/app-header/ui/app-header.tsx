@@ -7,13 +7,14 @@ import { LocaleSwitch } from '@/features/locale-switch';
 
 export const AppHeader = () => {
   const t = useTranslations('common');
+  const r = useTranslations('registrar');
   const { me } = useMe();
   const nav: { href: string; label: string; show: boolean }[] = [
     { href: '/', label: t('book'), show: !me || me.role === 'patient' },
     { href: '/cabinet', label: t('cabinet'), show: me?.role === 'patient' },
-    { href: '/registrar', label: t('registrar'), show: me?.role === 'registrar' },
-    { href: '/registrar/phone', label: t('registrar') + ' ☎', show: me?.role === 'registrar' },
-    { href: '/registrar/schedule', label: '⚙', show: me?.role === 'registrar' },
+    { href: '/registrar', label: r('boardTitle'), show: me?.role === 'registrar' },
+    { href: '/registrar/phone', label: r('phoneBooking'), show: me?.role === 'registrar' },
+    { href: '/registrar/schedule', label: r('schedule'), show: me?.role === 'registrar' },
     { href: '/doctor', label: t('doctor'), show: me?.role === 'doctor' },
     { href: '/manager/report', label: t('report'), show: me?.role === 'manager' },
   ];

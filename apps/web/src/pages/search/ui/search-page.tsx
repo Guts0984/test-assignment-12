@@ -50,11 +50,12 @@ export const SearchPage = () => {
       </form>
       {svc && <p className="mb-4 text-sm text-slate-700">{t('duration', { minutes: svc.service.durationMin })} · {t('price', { price: f.money(svc.priceMinor, svc.currency) })}</p>}
       <div className="grid gap-6 lg:grid-cols-[1fr_22rem]">
-        <SlotGrid clinicId={q.city} clinicLabel={clinic?.city ?? ''} serviceId={q.service} doctorId={q.doctor} selectedStart={picked?.slot.startsAt} onPick={setPicked} />
+        <SlotGrid clinicId={q.city} clinicLabel={clinic?.city ?? ''} serviceId={q.service} doctorId={q.doctor} selected={picked?.slot} onPick={setPicked} />
         <div className="flex flex-col gap-4">
           {picked && svc && clinic && (
             <HoldPanel
               signedIn={!!me && me.role === 'patient'}
+              staff={!!me && me.role !== 'patient'}
               target={{ clinicId: q.city, doctorId: picked.slot.doctorId, serviceId: q.service, startsAt: picked.slot.startsAt, doctorName: picked.doctorName, serviceName: serviceName(svc.service, locale), timeZone: picked.timeZone, priceLabel: f.money(picked.priceMinor, picked.currency) }}
               onClose={() => setPicked(null)}
               onChanged={() => undefined}

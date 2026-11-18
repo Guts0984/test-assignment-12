@@ -22,7 +22,7 @@ export type HoldTarget = { clinicId: string; doctorId: string; serviceId: string
  * it for 10 minutes; the countdown shows the same deadline. Confirm sends one idempotency key per hold,
  * so a double click or a network retry cannot book twice.
  */
-export const HoldPanel = ({ target, signedIn, onClose, onChanged }: { target: HoldTarget; signedIn: boolean; onClose: () => void; onChanged: () => void }) => {
+export const HoldPanel = ({ target, signedIn, staff = false, onClose, onChanged }: { target: HoldTarget; signedIn: boolean; /** signed in, but as registrar / doctor / manager */ staff?: boolean; onClose: () => void; onChanged: () => void }) => {
   const t = useTranslations('hold');
   const authT = useTranslations('auth');
   const commonT = useTranslations('common');
@@ -63,6 +63,15 @@ export const HoldPanel = ({ target, signedIn, onClose, onChanged }: { target: Ho
     const id = setTimeout(() => { setState('expired'); onChanged(); }, Math.max(0, appt.until.getTime() - Date.now()));
     return () => clearTimeout(id);
   }, [state, appt]);
+
+  if (staff) {
+    return (
+      <Card aria-live="polite" data-testid="staff-note">
+        <p className="mb-2 text-sm">{t('patientsOnly')}</p>
+        <Button variant="ghost" onClick={onClose}>{commonT('close')}</Button>
+      </Card>
+    );
+  }
 
   if (!signedIn) {
     return (

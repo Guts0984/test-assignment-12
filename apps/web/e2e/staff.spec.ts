@@ -10,8 +10,8 @@ test('registrar: phone booking through the same rules, and the day board', async
   const page = await ctx.newPage();
   await page.goto(`/en/registrar/phone?service=${c.service}`);
   await expect(page.getByTestId('slot-grid')).toBeVisible();
-  const { start } = await firstSlot(page);
-  await slotByStart(page, start).click();
+  const { start, doctor } = await firstSlot(page);
+  await slotByStart(page, start, doctor).click();
   const form = page.getByTestId('phone-booking');
   await expect(form).toBeVisible();
   // invalid new patient → errors at the fields, nothing booked
@@ -27,7 +27,10 @@ test('registrar: phone booking through the same rules, and the day board', async
   await form.getByLabel('Phone', { exact: true }).fill(phone);
   await page.getByTestId('phone-book').click();
   await expect(page.getByTestId('phone-booked')).toBeVisible();
-  await expect(slotByStart(page, start)).toHaveCount(0);
+  // the booked time is no longer offered (reload: the grid shows only what is still free)
+  await page.reload();
+  await expect(page.getByTestId('slot-grid')).toBeVisible();
+  await expect(slotByStart(page, start, doctor)).toHaveCount(0);
   await ctx.close();
 });
 
@@ -120,6 +123,7 @@ test('registrar: the phone-booking path works with the keyboard only', async ({ 
   await expect(page.getByTestId('slot-grid')).toBeVisible();
   const slot = page.getByTestId('slot').first();
   const start = await slot.getAttribute('data-start');
+  const doctor = await slot.getAttribute('data-doctor');
   await slot.focus();
   await kb.press('Enter');
   const form = page.getByTestId('phone-booking');
@@ -132,6 +136,8 @@ test('registrar: the phone-booking path works with the keyboard only', async ({ 
   await expect(page.getByTestId('phone-book')).toBeFocused();
   await kb.press('Enter');
   await expect(page.getByTestId('phone-booked')).toBeVisible();
-  await expect(page.locator(`[data-testid="slot"][data-start="${start}"]`)).toHaveCount(0);
+  await page.reload();
+  await expect(page.getByTestId('slot-grid')).toBeVisible();
+  await expect(page.locator(`[data-testid="slot"][data-start="${start}"][data-doctor="${doctor}"]`)).toHaveCount(0);
   await ctx.close();
 });

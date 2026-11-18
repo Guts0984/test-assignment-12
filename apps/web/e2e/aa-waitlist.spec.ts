@@ -13,7 +13,7 @@ test('cancel with a waiting list: the first in the queue gets the offer live and
   // patient 1 books a time with a specific doctor
   await openSearch(p1, c, c.kyiv);
   const { start, doctor } = await firstSlot(p1);
-  await slotByStart(p1, start).click();
+  await slotByStart(p1, start, doctor).click();
   await p1.getByTestId('confirm-booking').click();
   await expect(p1.getByTestId('booked-note')).toBeVisible();
 
@@ -39,7 +39,7 @@ test('cancel with a waiting list: the first in the queue gets the offer live and
   const anon = await browser.newContext();
   const pa = await anon.newPage();
   await openSearch(pa, c, c.kyiv, doctor);
-  await expect(slotByStart(pa, start)).toHaveCount(0);
+  await expect(slotByStart(pa, start, doctor)).toHaveCount(0);
 
   await p2.getByTestId('accept-offer').click();
   await expect(p2.getByTestId('appointment')).toHaveCount(1, { timeout: 15_000 });
@@ -58,7 +58,7 @@ test('the first patient does not answer: after the offer time the second one rec
   const p1 = await c1.newPage(); const p2 = await c2.newPage(); const p3 = await c3.newPage();
   await openSearch(p1, c, c.kyiv);
   const { start, doctor } = await firstSlot(p1);
-  await slotByStart(p1, start).click();
+  await slotByStart(p1, start, doctor).click();
   await p1.getByTestId('confirm-booking').click();
   await expect(p1.getByTestId('booked-note')).toBeVisible();
   for (const p of [p2, p3]) { await openSearch(p, c, c.kyiv, doctor); await p.getByTestId('join-waitlist').click(); await expect(p.getByTestId('waitlist-joined')).toBeVisible(); await p.waitForTimeout(150); }
@@ -71,5 +71,11 @@ test('the first patient does not answer: after the offer time the second one rec
   // patient 2 stays silent for the offer lifetime (8 s in the test stack)
   await expect(p3.getByTestId('offer')).toBeVisible({ timeout: 30_000 });
   await expect(p2.getByTestId('offer')).toHaveCount(0, { timeout: 15_000 });
+  // tidy up: leave the queue so later specs start with an empty one
+  for (const p of [p2, p3]) {
+    await p.goto('/en/cabinet');
+    await p.getByRole('button', { name: 'Leave the queue' }).click();
+    await expect(p.getByTestId('waitlist-entry')).toHaveCount(0);
+  }
   await c1.close(); await c2.close(); await c3.close();
 });

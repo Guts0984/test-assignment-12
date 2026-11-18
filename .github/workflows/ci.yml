@@ -62,8 +62,8 @@ jobs:
       - run: pnpm --filter @clinic/web exec playwright install --with-deps chromium
       - run: pnpm --filter @clinic/web e2e
         env:
-          E2E_BASE_URL: http://localhost:8090
-          E2E_API_URL: http://localhost:8090/graphql
+          E2E_BASE_URL: http://localhost:8080
+          E2E_API_URL: http://localhost:8080/graphql
           E2E_MAIL_URL: http://localhost:8025
       - run: docker compose up -d --no-deps api nginx   # production edge settings
       - run: ATTACK_SECONDS=20 infra/attack/run.sh

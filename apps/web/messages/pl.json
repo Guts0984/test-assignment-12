@@ -100,7 +100,8 @@
     "release": "Zrezygnuj",
     "expired": "Rezerwacja wygasła, termin znów jest wolny.",
     "confirmed": "Zarezerwowano! Potwierdzenie wysłano e-mailem.",
-    "summary": "{service} · {doctor} · {when} · {price}"
+    "summary": "{service} · {doctor} · {when} · {price}",
+    "patientsOnly": "Rezerwacja online jest tylko dla pacjentów. Jesteś zalogowany jako pracownik kliniki: rejestratorzy umawiają pacjentów w „Rezerwacji telefonicznej”."
   },
   "cabinet": {
     "title": "Moje wizyty",

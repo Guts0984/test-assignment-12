@@ -12,7 +12,7 @@ Nothing else: `db-init` applies migrations and seeds once (3 clinics, 40 doctors
 
 | What | Where |
 | --- | --- |
-| Website (nginx → web, `/graphql` → api, one origin) | http://localhost:8090 (`HTTP_PORT`) |
+| Website (nginx → web, `/graphql` → api, one origin) | http://localhost:8080 (`HTTP_PORT`) |
 | Mail stub: SMTP on 1025, every email shown on a page | http://localhost:8025 |
 | More workers | `docker compose up --scale worker=3` |
 
@@ -75,7 +75,7 @@ End-to-end (Playwright, real stack, 8-second holds): see the Web section. Full-s
 | 5 | two doctors, one UZI room | same files, "ultrasound" cases |
 | 6 | hold not confirmed; late confirm refused | `domain/booking.test.ts` (±1 ms), `worker/flows.test.ts`, `e2e/booking.spec.ts` (2) |
 | 7 | reschedule into a just-taken time | `domain/reschedule-cancel.test.ts`, `api/concurrency.test.ts` |
-| 8 | cancel with waiting list of 3; first silent | `domain/waitlist.test.ts`, `worker/flows.test.ts`, `e2e/waitlist.spec.ts` |
+| 8 | cancel with waiting list of 3; first silent | `domain/waitlist.test.ts`, `worker/flows.test.ts`, `e2e/aa-waitlist.spec.ts` |
 | 9 | reminders after reschedule / cancel | `domain/reschedule-cancel.test.ts`, `worker/delivery.test.ts` |
 | 10 | `FLUSHALL`, worker restart | `worker/delivery.test.ts`, `worker/flows.test.ts` |
 | 11 | three workers | `worker/delivery.test.ts`, `e2e/zz-scale.spec.ts` (compose `--scale worker=3`) |

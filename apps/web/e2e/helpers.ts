@@ -48,4 +48,4 @@ export const firstSlot = async (page: Page): Promise<{ start: string; doctor: st
   return { start: (await slot.getAttribute('data-start'))!, doctor: (await slot.getAttribute('data-doctor'))! };
 };
 
-export const slotByStart = (page: Page, start: string) => page.locator(`[data-testid="slot"][data-start="${start}"]`);
+export const slotByStart = (page: Page, start: string, doctor?: string) => page.locator(`[data-testid="slot"][data-start="${start}"]${doctor ? `[data-doctor="${doctor}"]` : ''}`);

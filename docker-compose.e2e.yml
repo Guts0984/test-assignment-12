@@ -23,7 +23,7 @@ services:
       WS_MAX_SUBS_PER_CONN: 100
       ARGON_MEMORY_KIB: 4096
       ARGON_TIME_COST: 1
-      CORS_ORIGINS: http://localhost:3190,http://localhost:8090
+      CORS_ORIGINS: http://localhost:3190,http://localhost:8080
       TRUST_PROXY_CIDRS: 172.16.0.0/12
   worker:
     environment:

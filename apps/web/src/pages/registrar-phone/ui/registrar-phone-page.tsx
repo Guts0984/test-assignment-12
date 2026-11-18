@@ -39,7 +39,7 @@ export const RegistrarPhonePage = () => {
         </SelectField>
       </form>
       <div className="grid gap-6 lg:grid-cols-[1fr_24rem]">
-        <SlotGrid clinicId={clinicId} clinicLabel={clinic?.city ?? ''} serviceId={q.service} doctorId={q.doctor} selectedStart={picked?.slot.startsAt} onPick={setPicked} />
+        <SlotGrid clinicId={clinicId} clinicLabel={clinic?.city ?? ''} serviceId={q.service} doctorId={q.doctor} selected={picked?.slot} onPick={setPicked} />
         {picked && <PhoneBookingForm slot={{ clinicId, doctorId: picked.slot.doctorId, serviceId: q.service, startsAt: picked.slot.startsAt }} onBooked={() => undefined} />}
       </div>
     </>

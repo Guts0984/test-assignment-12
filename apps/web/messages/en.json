@@ -100,7 +100,8 @@
     "release": "Release",
     "expired": "The reservation ended, the time is free again.",
     "confirmed": "Booked! A confirmation email is on its way.",
-    "summary": "{service} · {doctor} · {when} · {price}"
+    "summary": "{service} · {doctor} · {when} · {price}",
+    "patientsOnly": "Online booking is for patients only. You are signed in as clinic staff: registrars book patients under \"Phone booking\"."
   },
   "cabinet": {
     "title": "My appointments",
